@@ -49,3 +49,4 @@ make selftest or compile with SELF_TEST compiler option to add selftest code, an
 ## Once above is available, have a logic to list out probable leak
 ## Have pause / resume functionality
 ## Figure out physical usage of the allocations
+## More enhancement possible
