@@ -234,11 +234,11 @@ extern unsigned int gInitIndex;
 #define dbg(A, ...)                         \
 if ((DEBUG_LEVEL > A) || (PRINT_MUST == A)) \
 {                                           \
-	if (PRINT_WALK != A)                    \
-	{                                       \
-		printf("%d: ", getpid());           \
-	}                                       \
-	printf(__VA_ARGS__);                    \
+    if (PRINT_WALK != A)                    \
+    {                                       \
+        printf("%d: ", getpid());           \
+    }                                       \
+    printf(__VA_ARGS__);                    \
 }                                           \
 else                                        \
 ((void)0);
