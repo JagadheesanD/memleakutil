@@ -231,17 +231,17 @@ extern unsigned int gInitIndex;
 #if !defined(DEBUG_RUNTIME)
 // Default level
 #define DEBUG_LEVEL 2
-#define dbg(A, ...)                             \
-	if ((DEBUG_LEVEL > A) || (PRINT_MUST == A)) \
-	{                                           \
-		if (PRINT_WALK != A)                    \
-		{                                       \
-			printf("%d: ", getpid());           \
-		}                                       \
-		printf(__VA_ARGS__);                    \
-	}                                           \
-	else                                        \
-		((void)0);
+#define dbg(A, ...)                         \
+if ((DEBUG_LEVEL > A) || (PRINT_MUST == A)) \
+{                                           \
+	if (PRINT_WALK != A)                    \
+	{                                       \
+		printf("%d: ", getpid());           \
+	}                                       \
+	printf(__VA_ARGS__);                    \
+}                                           \
+else                                        \
+((void)0);
 
 #else
 // Default level is 2
