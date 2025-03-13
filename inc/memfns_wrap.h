@@ -1,6 +1,7 @@
 #ifndef MEMFNS_WRAP_H
 #define MEMFNS_WRAP_H
 
+/* Include libraries */
 #include <stddef.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -12,30 +13,31 @@
 #undef __USE_XOPEN2K
 #undef __USE_ISOC11
 
-/* Version control, used for setting versionString[] 
+/*
+ * Version Constants: 
+ * Used for setting versionString[]
  * MEMWRAP_COMMANDS_VERSION is used for tracking compatibility
- * between memleakutil and libmemfnswrap.so. Therefore increment
- * only when there is a change in commands list */
-
+ * between memleakutil and libmemfnswrap.so.
+ * Increment only when there is a change in commands list.
+ */
 #define MEMWRAP_MAJOR_VERSION "1"
 #define MEMWRAP_MINOR_VERSION "0"
-/* MEMWRAP_COMMANDS_VERSION is 8 bit unsigned. Shouldn't be greater than 255 */
+
+/* MEMWRAP_COMMANDS_VERSION is 8 bit unsigned - shouldn't be greater than 255 */
 #define MEMWRAP_COMMANDS_VERSION 1
 
-// Allocate extra for holding the data, so that we can avoid additional allocation
-#define PREPEND_LISTDATA
-// Doesn't hold the process during lengthy heapwalk
-#define OPTIMIZE_MQ_TRANSFER
-// Maintains single list for both walked and un-walked
-#define MAINTAIN_SINGLE_LIST
+/* Memory Management Options */
+#define PREPEND_LISTDATA /* Allocate extra for holding the data to avoid additional allocation */
+#define OPTIMIZE_MQ_TRANSFER /* Avoid holding the process during lengthy heapwalk */
+#define MAINTAIN_SINGLE_LIST /* Maintain single list for both walked and unwalked */
 
+/* Command Optimization Flags */
 #ifdef OPTIMIZE_MQ_TRANSFER
 #define OPTIMIZE_MQ_TRANSFER_FOR_CMD 1
 #else
 #define OPTIMIZE_MQ_TRANSFER_FOR_CMD 0
 #endif
 
-// Print statistics
 #ifdef PREPEND_LISTDATA
 #define ENABLE_STATISTICS
 #define PREPEND_LISTDATA_FOR_CMD 1
@@ -49,59 +51,64 @@
 #define MAINTAIN_SINGLE_LIST_FOR_CMD 0
 #endif
 
+/* Static for internal testing */
 #ifndef SELF_TEST
 #define STATIC static
 #else
 #define STATIC
 #endif
 
+/* Data Structures */
 struct list;
-// Do not pack this structure. If so, then we need to make gListInitIndex aligned to void*
-// Also, keep it in sync with LISTxfer structure
-typedef struct list {
+
+/* 
+ * Define LIST structure - Ensure gListInitIndex is aligned to void* and sync with LISTxfer structure 
+ * NOTE: Don't pack this structure
+ */
+typedef struct list
+{
 #if defined(PREPEND_LISTDATA)
-	// First 2 bytes (taking care of LSB/MSB) contains magic number. 
-	// Second 2 bytes real flag. For now using a bit for realloc'd entries
-	unsigned int flags;
+	unsigned int flags; /* First 2 bytes are magic number (for LSB/MSB), next 2 are real flag */
 #endif
 	void *ptr;
-        unsigned int size;
-        void *ra;
-        pid_t tid;
-        time_t seconds;
-        struct list *next;
+	unsigned int size;
+	void *ra;
+	pid_t tid;
+	time_t seconds;
+	struct list *next;
 #ifdef PREPEND_LISTDATA
-        struct list *prev;
+	struct list *prev;
 #endif
-}LIST;
+} LIST;
 
 #ifdef OPTIMIZE_MQ_TRANSFER
-typedef struct list_xfer {
+typedef struct list_xfer
+{
 #ifdef PREPEND_LISTDATA
-	// First 2 bytes (taking care of LSB/MSB) contains magic number. 
-	// Second 2 bytes real flag. For now using a bit for realloc'd entries
-	unsigned int flags;
+	unsigned int flags; /* First 2 bytes are magic number (for LSB/MSB), next 2 are real flag */
 #endif
 	void *ptr;
-        unsigned int size;
-        void *ra;
-        pid_t tid;
-        time_t seconds;
-}LISTxfer;
+	unsigned int size;
+	void *ra;
+	pid_t tid;
+	time_t seconds;
+} LISTxfer;
 
-// Keep it as 2^x
+/* Define maximum heatmap size as power of 2 */
 #define MAX_HEAT_MAP 32
-struct HEATMAP {
+
+struct HEATMAP
+{
 	unsigned long startAddress;
 	unsigned long endAddress;
 	unsigned long long heapEntries;
 };
 
-typedef struct mmap {
+typedef struct mmap
+{
 	unsigned long startAddress;
 	unsigned long endAddress;
-	// Holds the total size of heap entries falling into this mmap
-	unsigned long long heapEntries;
+	unsigned long long heapEntries; /* Total size of heap entries within this mmap */
 	unsigned int size;
 	unsigned int rss;
 	unsigned int dirty;
@@ -110,16 +117,19 @@ typedef struct mmap {
 	struct HEATMAP heatmap[MAX_HEAT_MAP];
 	struct mmap *prev;
 	struct mmap *next;
-}MMAP_anon;
+} MMAP_anon;
 #endif
 
+/* Message Queue Configuration */
 #define MQ_MSG_SIZE 128
-typedef struct mq_msg_cmd{
-        int cmd;
-        int pid;
-}msg_cmd;
+typedef struct mq_msg_cmd
+{
+	int cmd;
+	int pid;
+} msg_cmd;
 
-typedef enum {
+typedef enum
+{
 	HEAPWALK_BASE = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21),
 	HEAPWALK_INCREMENT = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 1),
 	HEAPWALK_FULL = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 2),
@@ -127,35 +137,38 @@ typedef enum {
 	HEAPWALK_MARKALL = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 4),
 	HEAPWALK_RESET_MARKED = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 5),
 	HEAPWALK_EXIT = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 6)
-}mycmds;
+} mycmds;
 
-typedef enum {
+typedef enum
+{
 	HEAPWALK_EMPTY = 0x0,
 	HEAPWALK_ITEM_CONTN = 0x10000000,
 	HEAPWALK_ENDOF_LIST = 0x20000000
-}heapwalkCtrl;
+} heapwalkCtrl;
 
 #define MAX_MSG_XFER 100
-typedef struct mq_msg_recv{
+typedef struct mq_msg_recv
+{
 #ifndef OPTIMIZE_MQ_TRANSFER
-        int seq;
-        char msg[MQ_MSG_SIZE];
+	int seq;
+	char msg[MQ_MSG_SIZE];
 #else
 	unsigned int numItemOrInfo;
 	unsigned long totalHeapSize;
 	unsigned long totalOverhead;
 	LISTxfer xfer[MAX_MSG_XFER];
 #endif
-}msg_resp;
+} msg_resp;
 
 #define QUEUE_PERMISSION ((int)(0666))
 #define QUEUE_READ_PERMISSION ((int)(0444))
 #define QUEUE_MAXMSG 256
 
+/* Function Declarations */
 void load_libc_functions();
+
 #if defined(USE_DEPRECATED_MEMALIGN)
-// Since it is deprecated, if someone is still using such that it links to memalign@GLIBC_2.17, then
-// below provides declaration to interpret
+/* Deprecated 'memalign' declaration */
 void *memalign(size_t alignment, size_t size);
 #endif
 
@@ -169,7 +182,7 @@ void heapwalkMarkall();
 void heapwalkReset();
 
 #ifdef SELF_TEST
-// For selftest functionality alone..
+/* Self-test functionality */
 void resetList();
 void dispStatus();
 extern pthread_mutex_t lock;
@@ -185,24 +198,24 @@ extern unsigned int gInitIndex;
 #endif
 
 #define PRINT printf
+
 /********************************
+ * Debugging Configuration
  * DISABLE_DEBUG   --> Define to disable all debug statements
- * DEBUG_RUNTIME   --> Define to control debug print level during runtime. 
+ * DEBUG_RUNTIME   --> Define to control debug print level during runtime.
  *                     Update DEBUG_ENV_LEVEL env with new level and send sigusr1 signal
- *                     NOTE: Function with variable number of args will not detect format errors. 
+ *                     NOTE: Function with variable number of args will not detect format errors.
  *                     Therefore, check format errors without this flag
- * !DEBUG_RUNTIME  --> Undefine to control debug level during compilation time. No runtime overhead 
+ * !DEBUG_RUNTIME  --> Undefine to control debug level during compilation time. No runtime overhead
  * PRINT_****      --> Use/define new levels
- *******************************/
+ ********************************/
 
 #undef DISABLE_DEBUG
-//#define DEBUG_RUNTIME
+// #define DEBUG_RUNTIME
 
 #if defined(DISABLE_DEBUG)
-#define dbg(A,...) \
-	((void)0);
-#else //#if defined(DISABLE_DEBUG)
-
+#define dbg(A, ...) ((void)0);
+#else
 
 #define PRINT_MUST 23
 #define PRINT_WALK -1
@@ -218,12 +231,17 @@ extern unsigned int gInitIndex;
 #if !defined(DEBUG_RUNTIME)
 // Default level
 #define DEBUG_LEVEL 2
-#define dbg(A,...) \
-	if ((DEBUG_LEVEL > A) || (PRINT_MUST == A)) {\
-		if (PRINT_WALK != A) {\
-			printf("%d: ", getpid()); }\
-		printf(__VA_ARGS__); \
-	}else ((void)0);
+#define dbg(A, ...)                             \
+	if ((DEBUG_LEVEL > A) || (PRINT_MUST == A)) \
+	{                                           \
+		if (PRINT_WALK != A)                    \
+		{                                       \
+			printf("%d: ", getpid());           \
+		}                                       \
+		printf(__VA_ARGS__);                    \
+	}                                           \
+	else                                        \
+		((void)0);
 
 #else
 // Default level is 2
@@ -232,6 +250,6 @@ extern int debug_level;
 extern void dbg(int a, const char *b, ...);
 #endif
 
-#endif //#if defined(DISABLE_DEBUG)
+#endif /* End of DISABLE_DEBUG */
 
-#endif //MEMFNS_WRAP_H
+#endif /* End of MEMFNS_WRAP_H */
