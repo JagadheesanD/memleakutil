@@ -22,7 +22,7 @@ extern void selftest();
 extern void spawntestrunthread();
 #endif
 
-unsigned short version = (MEMWRAP_MAJOR_VERSION * 10 + MEMWRAP_MINOR_VERSION);
+static const char versionString[] = "" MEMWRAP_MAJOR_VERSION "." MEMWRAP_MINOR_VERSION "";
 
 mqd_t createMq()
 {
@@ -457,14 +457,32 @@ int main(int argc, char *argv[])
 	// mqrecv for mq_util, mqsend for sending to mq_wrapper_<pid>
         mqd_t mqrecv, mqsend;
         msg_cmd msgcmd;
+
+	printf("memleakutil %s\n", versionString);
+#ifdef OPTIMIZE_MQ_TRANSFER_FOR_CMD
+	char cOPTIMIZE_MQ_TRANSFER_FOR_CMD = 'Y';
+#else
+	char cOPTIMIZE_MQ_TRANSFER_FOR_CMD = 'N';
+#endif
+#ifdef PREPEND_LISTDATA_FOR_CMD
+	char cPREPEND_LISTDATA_FOR_CMD = 'Y';
+#else
+	char cPREPEND_LISTDATA_FOR_CMD = 'N';
+#endif
+#ifdef MAINTAIN_SINGLE_LIST_FOR_CMD
+	char cMAINTAIN_SINGLE_LIST_FOR_CMD='Y';
+#else
+	char cMAINTAIN_SINGLE_LIST_FOR_CMD='N';
+#endif
+	printf("Build Options:\nMEMWRAP_COMMANDS_VERSION=%d\nOPTIMIZE_MQ_TRANSFER_FOR_CMD=%c\nPREPEND_LISTDATA_FOR_CMD=%c\nMAINTAIN_SINGLE_LIST_FOR_CMD=%c\n\n",
+			MEMWRAP_COMMANDS_VERSION, cOPTIMIZE_MQ_TRANSFER_FOR_CMD, cPREPEND_LISTDATA_FOR_CMD, cMAINTAIN_SINGLE_LIST_FOR_CMD);
 #if defined(DEBUG_RUNTIME)
         char *dbg_level = getenv("DEBUG_ENV_LEVEL");
         if (dbg_level) {
                 sscanf(dbg_level, "%d", &debug_level);
 	}
-	dbg(PRINT_MUST, "DEBUG_RUNTIME enabled. Debug level %d\n", debug_level);
+	printf("DEBUG_RUNTIME enabled. Debug level %d\n", debug_level);
 #endif
-	dbg(PRINT_MUST, "HeapWalk Utility Version: %u.%u HEAPWALK_CMDS starts from 0x%x\n", MEMWRAP_MAJOR_VERSION, MEMWRAP_MINOR_VERSION, HEAPWALK_INCREMENT);
         dbg(PRINT_MUST, "PRINT_MUST (=%d) will be printed\n", PRINT_MUST);
         dbg(PRINT_WALK, "PRINT_WALK (=%d) will be printed\n", PRINT_WALK);
         dbg(PRINT_FATAL, "PRINT_FATAL (=%d)  will be printed\n", PRINT_FATAL);
@@ -605,6 +623,8 @@ int main(int argc, char *argv[])
 
 			default:
 				dbg(PRINT_ERROR, "Invalid cmd 0x%x...continuing\n", msgcmd.cmd);
+				printf("This Utility Built with:\nMEMWRAP_COMMANDS_VERSION=%d\nOPTIMIZE_MQ_TRANSFER_FOR_CMD=%c\nPREPEND_LISTDATA_FOR_CMD=%c\nMAINTAIN_SINGLE_LIST_FOR_CMD=%c\n\n",
+					MEMWRAP_COMMANDS_VERSION, cOPTIMIZE_MQ_TRANSFER_FOR_CMD, cPREPEND_LISTDATA_FOR_CMD, cMAINTAIN_SINGLE_LIST_FOR_CMD);
 				break;
 
 		}

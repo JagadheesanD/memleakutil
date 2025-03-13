@@ -16,6 +16,7 @@
 #include "memfns_wrap.h"
 
 #ifndef SELF_TEST
+/* Not used, simply a placehold */
 unsigned short version = (MEMWRAP_MAJOR_VERSION * 10 + MEMWRAP_MINOR_VERSION);
 #endif
 
