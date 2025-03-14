@@ -16,8 +16,7 @@
 #include "memfns_wrap.h"
 
 #ifndef SELF_TEST
-/* Not used, simply a placehold */
-unsigned short version = (MEMWRAP_MAJOR_VERSION * 10 + MEMWRAP_MINOR_VERSION);
+static const char versionString[] = "" MEMWRAP_MAJOR_VERSION "." MEMWRAP_MINOR_VERSION "";
 #endif
 
 STATIC pthread_mutex_t lock;
@@ -114,7 +113,7 @@ void mapInitialMemory()
 }
 static void * thread_start(void *arg)
 {
-	dbg(PRINT_INFO, "%s: Starting thread\n", __FUNCTION__);	
+	dbg(PRINT_INFO, "%s: Starting thread: version %s\n", __FUNCTION__, versionString);	
         mqd_t mq, mqsend;
         msg_cmd msgcmd;
 	char mq_name[64];
