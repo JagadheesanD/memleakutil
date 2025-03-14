@@ -113,7 +113,10 @@ void mapInitialMemory()
 }
 static void * thread_start(void *arg)
 {
-	dbg(PRINT_INFO, "%s: Starting thread: version %s\n", __FUNCTION__, versionString);	
+	dbg(PRINT_INFO, "%s: Starting thread\n", __FUNCTION__);
+#ifndef SELF_TEST
+	dbg(PRINT_INFO, "%s: Starting thread: version %s\n", __FUNCTION__, versionString);
+#endif
         mqd_t mq, mqsend;
         msg_cmd msgcmd;
 	char mq_name[64];
