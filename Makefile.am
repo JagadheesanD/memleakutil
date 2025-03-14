@@ -39,7 +39,7 @@ if USE_SELF_TEST
 bin_PROGRAMS += memleakutil_test
 memleakutil_test_DEPENDENCIES = libmemfnswrap.la
 memleakutil_test_SOURCES = ${top_srcdir}/uty/memleakutil.c \
-			   ${top_srcdir}/uty/memleakutil_test.c \
+			   ${top_srcdir}/tst/memleakutil_test.c \
 			   ${top_srcdir}/lib/memfns_wrap.c
 memleakutil_test_CFLAGS = $(AM_CFLAGS) -DSELF_TEST
 memleakutil_test_CPPFLAGS = $(AM_CFLAGS) -DSELF_TEST
