@@ -2,9 +2,9 @@ name: Build Check
 
 on:
   push:
-    branches: [ "develop" ]
+    branches: [ "develop" , "main" ]
   pull_request:
-    branches: [ "develop" ]
+    branches: [ "develop" , "main" ]
 
 jobs:
   build:
@@ -15,3 +15,5 @@ jobs:
     - uses: actions/checkout@v4
     - name: make
       run: make -f Makefile.raw
+    - name: make selftest
+      run: make -f Makefile.raw selftest
