@@ -24,10 +24,10 @@ When a pointer is freed, the node containing the details is also freed up. There
 # How to build
 configure.ac/Makefile.am provides instruction for autotool to create Makefile.in during cross/straight compilation. For quick compilation, use make -f Makefile.raw
 ## Compiler Options available:
-MAINTAIN_SINGLE_LIST_FOR_CMD - Maintains single list for walked entries and un-walked entries. This option is default for efficiency.
-PREPEND_LISTDATA_FOR_CMD     - Manipulates pointer size requested for maintaining the data. If there is any heap corruption, then this will take a hit. In that case, disable this for debugging. This option is default, as it's efficient handling free/realloc for locating the data maintained using hashing, rather than navigating the list. If this size increase meddles with fastbin/tcache size, then disable for effective debugging. 
-OPTIMIZE_MQ_TRANSFER_FOR_CMD - Effective bulk transfer during heapwalk, rather than holding the process for long. This option is default
-MEMWRAP_COMMANDS_VERSION     - Commands version. Changes when there is option change. Above 3 definitions affects the command value, so that memleakutil/libmemfnswrap.so compatibility is determined. Below is the way commands are constructed
+   - MAINTAIN_SINGLE_LIST_FOR_CMD - Maintains single list for walked entries and un-walked entries. This option is default for efficiency.
+   - PREPEND_LISTDATA_FOR_CMD     - Manipulates pointer size requested for maintaining the data. If there is any heap corruption, then this will take a hit. In that case, disable this for debugging. This option is default, as it's efficient handling free/realloc for locating the data maintained using hashing, rather than navigating the list. If this size increase meddles with fastbin/tcache size, then disable for effective debugging. 
+   - OPTIMIZE_MQ_TRANSFER_FOR_CMD - Effective bulk transfer during heapwalk, rather than holding the process for long. This option is default
+   - MEMWRAP_COMMANDS_VERSION     - Commands version. Changes when there is option change. Above 3 definitions affects the command value, so that memleakutil/libmemfnswrap.so compatibility is determined. Below is the way commands are constructed
      ActualCmd = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | Cmd)
 
 # How to use
@@ -41,7 +41,7 @@ If subsequent heap walk shows total heap size increase, which is not proportiona
 Get the process's maps and subtract the initial offset of the map entry from the RA (Note: If ASLR is enabled, do this for all. If not, only for dynamic libraries) and using addr2line -f -e <file with symbols> 0x<processed RA>
 
 # Selftest
-make selftest adds selftest code, and run "./memleakutil selftest". In Yocto environment, ptest distro ensures creation of ptest package, which can be used for doing selftest.
+make selftest or compile with SELF_TEST compiler option to add selftest code, and run "./memleakutil selftest". In Yocto environment, ptest distro ensures creation of ptest package, which can be used for doing selftest.
 
 # TODO/Improvements
 ## Provision to store data for offline analysis
