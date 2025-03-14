@@ -6,11 +6,11 @@ LDFLAGS += -L${BUILD_OUTPUT}
 LDFLAGS_SELFTEST += ${LDFLAGS} -Wl,-O1 -Wl,--hash-style=gnu -Wl,--no-as-needed -lmemfnswrap -Wl,--as-needed
 
 
-default: lib link bin
+default: library link bin
 
 selftest: selftestlib link selftestbin
 
-lib:
+library:
 	$(CC) $(CFLAGS) lib/memfns_wrap.c -o ${BUILD_OUTPUT}/memfns_wrap.o -Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed  -c -fPIC 
 	$(CC) $(LDFLAGS) ${BUILD_OUTPUT}/memfns_wrap.o -lrt -ldl -shared -Wl,-soname,libmemfnswrap.so.0 -o ${BUILD_OUTPUT}/libmemfnswrap.so.0.0
 
