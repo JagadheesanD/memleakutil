@@ -24,17 +24,13 @@ AM_LDFLAGS += -lrt -ldl
 lib_LTLIBRARIES = libmemfnswrap.la
 libmemfnswrap_la_SOURCES = ${top_srcdir}/lib/memfns_wrap.c
 libmemfnswrap_la_LDFLAGS = -shared -fPIC -Wl,-soname,libmemfnswrap.so.0
-libmemfnswrap_la_includedir = ${top_srcdir}/inc
-libmemfnswrap_la_include_HEADERS = ${top_srcdir}/inc/memfns_wrap.h
+libmemfnswrap_la_includedir = $(includedir)
+libmemfnswrap_la_include_HEADERS = inc/memfns_wrap.h
 
 bin_PROGRAMS = memleakutil
 memleakutil_SOURCES = \
     ${top_srcdir}/uty/memleakutil.c
 memleakutil_includedir = ${top_srcdir}/inc
-memleakutil_include_HEADERS = ${top_srcdir}/inc/memfns_wrap.h
-
-#    ${top_srcdir}/inc/memfns_wrap.h
-
 memleakutil_CFLAGS = $(AM_CFLAGS)
 memleakutil_CPPFLAGS = $(AM_CFLAGS) 
 memleakutil_LDFLAGS = $(AM_LDFLAGS) -lpthread
@@ -43,11 +39,8 @@ if USE_SELF_TEST
 bin_PROGRAMS += memleakutil_test
 memleakutil_test_DEPENDENCIES = libmemfnswrap.la
 memleakutil_test_SOURCES = ${top_srcdir}/uty/memleakutil.c \
-			   ${top_srcdir}/uty/memleakutil_test.c \
+			   ${top_srcdir}/tst/memleakutil_test.c \
 			   ${top_srcdir}/lib/memfns_wrap.c
-
-memleakutil_test_includedir = ${top_srcdir}/inc
-memleakutil_test_include_HEADERS = ${top_srcdir}/inc/memfns_wrap.h
 memleakutil_test_CFLAGS = $(AM_CFLAGS) -DSELF_TEST
 memleakutil_test_CPPFLAGS = $(AM_CFLAGS) -DSELF_TEST
 memleakutil_test_LDFLAGS = $(AM_LDFLAGS) -lpthread
