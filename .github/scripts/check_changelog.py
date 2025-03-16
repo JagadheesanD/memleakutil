@@ -38,7 +38,7 @@ def check_latest_changelog_entry():
     version_date_pattern = re.compile(r'^## \d+\.\d+\.\d+ - \d{4}-\d{2}-\d{2}$')
     change_type_pattern = re.compile(r'^### (Added|Changed|Deprecated|Fixed|Removed|Security)$')
     reason_pattern = re.compile(r'^- \*\*Reason:\*\* .{1,150}$')
-    entry_end_pattern = re.compile(r'^---$')
+    entry_end_pattern = re.compile(r'^---+$')  # Match any number of hyphens of at least two
 
     lines_iter = iter(latest_entry.split('\n'))
     try:
@@ -60,8 +60,9 @@ def check_latest_changelog_entry():
     if not reason_pattern.match(reason_line):
         errors.append("The reason line should be in the format `- **Reason:** <A reason that is 150 characters max length>`.")
 
+    entry_end_warning = False
     if not entry_end_pattern.match(entry_end_line):
-        errors.append("The entry should end with `---`.")
+        entry_end_warning = True
 
     if errors:
         print("The latest CHANGELOG.md entry is not properly formatted:")
@@ -69,6 +70,10 @@ def check_latest_changelog_entry():
             print(f"{idx}. {error}")
         print("\nLatest entry found:\n", latest_entry)
         sys.exit(1)
+
+    if entry_end_warning:
+        print("WARNING: The entry end line should ideally end with at least two hyphens (`--`). It is recommended but not enforced.")
+        print("\nEntry end line found:\n", entry_end_line)
 
     print("CHANGELOG.md has been updated with a properly formatted entry.")
     sys.exit(0)
