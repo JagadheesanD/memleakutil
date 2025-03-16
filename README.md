@@ -1,51 +1,139 @@
-# What do you get?
-## 1. ProcessWise/Threadwise Full Heap Walk
-  - Pointer, Size, Function address that called (RA), Thread ID, Allocation Time, Whether pointer re-alloc'd
-  - Total Heap size, Tool overhead
-## 2. Incremental Heap Walk
-  - Display entries allocated (and not free'd) after previous walk
-## 3. MMAP % mapping with heap and it's distribution
-  - mmapStart-mmapEnd        Size(Kb)    RSS(Kb)    Heap'd(Bytes)    Heap'd(%)vsRSS
-  - Anon Heatmap of total size over 32 (configurable via MAX_HEAT_MAP) divisions
-## 4. Mark all Heap entries as Walked
-  - Doesn't display, rather marks entries as walked
-## 5. Mark all Heap entries as un-walked
-  - Next walk displays all entries
+# Memleakutil
 
-# About
-Module consists of 2 parts, (1) memleakutil executable (2) Library to be linked to target process.
+## Table of Contents
+[Contributing Guidelines](#contributing-guidelines)<br>
+[Preface](#preface)<br>
+[What does it do?](#what-does-it-do)<br>
+[Overview](#overview)<br>
+[Features and Benefits](#features-and-benefits)<br>
+[Usecase](#usecase)<br>
+[How to build?](#how-to-build)<br>
+[How to use?](#how-to-use)<br>
+[Resolving Return Address](#resolving-return-address)<br>
+[Self Test](#self-test)<br>
+[Future improvements](#future-improvements)<br>
+[Versioning](#versioning)<br>
+[CHANGELOG](#changelog)<br>
+[Questions?](#questions)<br>
 
-User interactive memleakutil executable, communicates with libmemfnswrap.so which is linked/LD_PRELOAD'd with target process that is debugged. Gives option for heapwalk (threadwise or whole process), heapwalk full, Mapping of anon vs heap entries.
+## **Contributing Guidelines**
+1. [Fork](https://docs.github.com/en/github/getting-started-with-github/quickstart/fork-a-repo) the repository, commit your changes, build and test it a Linux/ Unix based environment.
+2. Submit the changes as a [pull request](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request-from-a-fork) against the latest develop branch.
+3. Make sure the Workflows are running and all checks are passed and commits have Verified Signature
+4. At least 1 Approving review is required by the reviewers with write access.
 
-Memfnswrap, is a simple interceptor for Glibc's malloc, calloc, realloc, memalign and free calls. libmemfnswrap.so can either be linked with the executable during linking time or LD_PRELOAD'd to start intercepting and collect information like pointer, size, thread id, time, function address that called malloc/calloc/realloc/memalign, flag indicating whether re-alloc'd. The information is maintained in a linked list whose nodes are allocated alongside the requested pointer address (with PREPEND_LISTDATA_FOR_CMD enabled). Basically the size needed for maintaining the information is added to the size of requested allocation, also considering the alignment requirement. Thus the information is placed at the beginning and after considering the alignment, the following address is returned to the caller. This not only reduces the extra call for allocating the information structure, but also useful during free/realloc for locating the node by use of hashing. 
+## **Preface**
+**memeleakutil** is a debugging tool designed to intercept and track memory allocations within processes. It provides comprehensive insights into heap usage 
+with the ability to walk through memory allocations, identify potential memory leaks, and analyze memory-mapped regions.
 
-When a pointer is freed, the node containing the details is also freed up. Therefore at any point of time, a heapwalk will give us the allocations that are currently in use.
+## **What does it do?**
+### ProcessWise/Threadwise Full Heap Walk
+  - Displays details such as Pointer, Size, Function address (Return Address), Thread ID, Allocation Time, and Reallocation status.
+  - Shows Total Heap size and Tool overhead.
+### Incremental Heap Walk
+  - Displays entries that have been allocated and not freed since the last heap walk.
+### MMAP % mapping with heap and it's distribution
+  - Illustrates mapped address ranges in terms of Size(Kb), RSS(Kb), Heap'd(Bytes), and the heap’s percentage against RSS.
+  - Provides a heatmap of the total size over 32 (configurable via MAX_HEAT_MAP) divisions.
+### Mark all Heap entries as Walked
+  - Marks entries as walked but doesn't display them.
+### Mark all Heap entries as un-walked
+  - Subsequent walks will display all entries.
 
-# How to build
-configure.ac/Makefile.am provides instruction for autotool to create Makefile.in during cross/straight compilation. For quick compilation, use make -f Makefile.raw
-## Compiler Options available:
-   - MAINTAIN_SINGLE_LIST_FOR_CMD - Maintains single list for walked entries and un-walked entries. This option is default for efficiency.
-   - PREPEND_LISTDATA_FOR_CMD     - Manipulates pointer size requested for maintaining the data. If there is any heap corruption, then this will take a hit. In that case, disable this for debugging. This option is default, as it's efficient handling free/realloc for locating the data maintained using hashing, rather than navigating the list. If this size increase meddles with fastbin/tcache size, then disable for effective debugging. 
-   - OPTIMIZE_MQ_TRANSFER_FOR_CMD - Effective bulk transfer during heapwalk, rather than holding the process for long. This option is default
-   - MEMWRAP_COMMANDS_VERSION     - Commands version. Changes when there is option change. Above 3 definitions affects the command value, so that memleakutil/libmemfnswrap.so compatibility is determined. Below is the way commands are constructed
-     ActualCmd = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | Cmd)
+## **Overview**
+The tool consists of two main parts:
+1. memleakutil Executable.
+2. Memory Functions Interceptor Library (libmemfnswrap.so)
 
-# How to use
-memleakutil executable shall be used to perform heapwalk on the processes that run with libmemfnswrap.so. It gets the pid of the process and tries to open posix message queue named mq_wrapper_pid, created by thread running under process context, waiting for read. During heapwalk, the tool will print the total size of the heap, as well as the overhead by the tool. Please note, the size is only a virtual size, and the tool doesn't calculate the actual physical size that was utilized.
+**memleakutil** communicates with **libmemfnswrap.so**, interposing itself in between the target process and the Glibc memory functions. It provides interactive commands to perform heap walks, marking memory allocations, and mapping memory regions for detailed analysis.
 
-The tool will mark the walked allocations and subsequent heapwalk command will not list the walked allocations. It will only print the new allocations done after previous walk. This way, the probable leaked allocations can be easily determined by doing an initial walk, then introducing the leak, and then doing a walk. This smaller list shall be analyzed for finding out the leak.
+**libmemfnswrap.so** can be linked to the executable during the linking phase or be preloaded using **LD_PRELOAD** to begin intercepting and collecting information such as:
+* Pointer addresses
+* Allocation sizes
+* Thread IDs
+* Allocation times and more
 
-If subsequent heap walk shows total heap size increase, which is not proportional to process's RSS increase, then to determine if mmap anon holds sparse allocations, use mmap % mapping option. This could happen when fastbin or thread cache holds-up the allocations, as well as a result of mmap coalesing. In such scenarios, use glibc tunables to regulate use of fastbins or thread cache.
+This library maintains allocation details in a linked list, which can optionally use **PREPEND_LISTDATA_FOR_CMD** to manage these entries efficiently.
 
-# Resolving RA address
-Get the process's maps and subtract the initial offset of the map entry from the RA (Note: If ASLR is enabled, do this for all. If not, only for dynamic libraries) and using addr2line -f -e <file with symbols> 0x<processed RA>
+## **Features and Benefits**
+1. **Single Linked List:** Provides an efficient way to maintain and track allocations.
+2. **Incremental Walks:** Identify new allocations since the last tracked walk, making it easy to spot potential memory leaks.
+3. **Heatmap Mapping:** Visualize memory usage within mapped memory regions, providing insights into how allocations are distributed.
+4. **Command-Line Interface:** Interact with the tool in a user-friendly manner to perform heap walks, manage marks, and analyze memory usage.
 
-# Selftest
-make selftest or compile with SELF_TEST compiler option to add selftest code, and run "./memleakutil selftest". In Yocto environment, ptest distro ensures creation of ptest package, which can be used for doing selftest.
+## **How to build?**
+The tool uses configure.ac and Makefile.am for creating Makefiles during cross/straight compilation. For a quick compilation, use:
+```
+make -f Makefile.raw
+```
+### Compiler Options available
+- **MAINTAIN_SINGLE_LIST_FOR_CMD**: Maintains a single list for both walked and un-walked entries (default and efficient).
+- **PREPEND_LISTDATA_FOR_CMD**: Adjusts requested pointer size to include metadata, aiding in efficient handling by reducing extra memory requests (default).
+- **OPTIMIZE_MQ_TRANSFER_FOR_CMD**: Facilitates bulk transfer during heapwalks, reducing process hold times (default).
+- **MEMWRAP_COMMANDS_VERSION**: Specifies command version for ensuring compatibility between memleakutil and libmemfnswrap.so.
 
-# TODO/Improvements
-## Provision to store data for offline analysis
-## Get configured number of backtrace addresses instead of the current RA alone
-## Once above is available, have a logic to list out probable leak
-## Have pause / resume functionality
-## Figure out physical usage of the allocations
+## How to use?
+**memleakutil** performs heap walks on processes running with libmemfnswrap.so attached. It interacts via a POSIX message queue */mq_wrapper_<pid>*, opened by a thread running within the target process. During a heap walk, the tool prints the total heap size and tool overhead.
+### Steps
+1. Start target process with libmemfnswrap.so attached.
+```
+LD_PRELOAD=/path/to/libmemfnswrap.so ./target_process
+```
+2. Run memleakutil and interact with it to perform heap walks.
+```
+./memleakutil
+```
+3. Follow on-screen instructions to view allocations, mark as walked, map heap vs mmap entries, etc.
+**Example Commands:**
+* Heapwalk New Allocations: Shows newly allocated and un-freed entries since the last walk.
+* Heapwalk All Allocations: Displays all allocation entries.
+* Map Heap vs Mmap Entries: Provides percentage mapping and distribution of anonymous memory mappings (requires OPTIMIZE_MQ_TRANSFER).
+* Mark All Allocations as Walked: Marks allocations as walked but does not display them.
+* Unmark Walked Allocations: Resets marks for walked allocations.
+
+## Resolving Return Address
+To resolve the RA address:
+1. Get the process's memory maps (if ASLR is enabled, repeat for all entries; otherwise, do this only for dynamic libraries).
+2. Subtract the initial offset of the map entry from the RA.
+3. Use *addr2line* to convert the processed RA to a file and line number.
+```
+addr2line -f -e <file with symbols> 0x<processed RA>
+```
+
+## Self Test
+Run self-tests using:
+```
+make selftest
+```
+Or compile with SELF_TEST to include self-test code and execute:
+```
+./memleakutil selftest
+```
+This command runs a series of tests to verify the tool’s functionality.
+
+## Future Improvements
+1. Offline Data Storage for Analysis
+2. Capture Multiple Backtrace Addresses
+3. Automated Leak Detection Logic
+4. Pause/Resume Heap Walks
+5. Determine Physical Usage of Allocations
+
+### Versioning
+Given a version number MAJOR.MINOR.PATCH, increment the:
+- **MAJOR:** version when you make incompatible API changes that break backwards compatibility. This could be removing existing APIs, changes to API Signature or major changes to API behavior that breaks API contract, 
+- **MINOR:** version when you add backward compatible new features like adding new APIs, adding new parameters to existing APIs,
+- **PATCH:** version when you make backwards compatible bug fixes.
+
+### CHANGELOG
+The CHANGELOG file that contains all changes done so far. When version is updated, add a entry in the [CHANGELOG.md](./CHANGELOG.md) at the top with user friendly information on what was changed with the new version. Refer to [Changelog](https://github.com/olivierlacan/keep-a-changelog/blob/main/CHANGELOG.md) as an example and [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) for more details.
+
+Please Add entry in the CHANGELOG for each version change and indicate the type of change with these labels:
+- **Added** for new features.
+- **Changed** for changes in existing functionality.
+- **Deprecated** for soon-to-be removed features.
+- **Removed** for now removed features.
+- **Fixed** for any bug fixes.
+- **Security** in case of vulnerabilities.
+
+### Questions?
+Any questions or concerns? Please reach out to Jagadheesan Duraisamy
