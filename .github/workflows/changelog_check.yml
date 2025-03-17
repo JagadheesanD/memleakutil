@@ -1,0 +1,21 @@
+name: Valid CHANGELOG.md entry
+
+on:
+  pull_request:
+    branches: [ develop , "main" ]
+
+jobs:
+  check_changelog:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Setup Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+
+    - name: Run CHANGELOG parser
+      run: python .github/scripts/check_changelog.py
