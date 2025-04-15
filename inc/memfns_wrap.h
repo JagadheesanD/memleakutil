@@ -95,7 +95,7 @@ typedef struct list_xfer
 } LISTxfer;
 
 /* Define maximum heatmap size as power of 2 */
-#define MAX_HEAT_MAP 32
+#define MAX_HEAT_MAP 8
 
 struct HEATMAP
 {

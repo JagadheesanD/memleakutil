@@ -173,6 +173,7 @@ static void *thread_start(void *arg)
 			}
 			clock_gettime(CLOCK_REALTIME, &tm);
 			tm.tv_sec += 1;
+			errno = 0;
 		} while (0 <= mq_timedreceive(mq, (char *)&msgcmd, sizeof(msg_cmd), &prio, &tm));
 		if (ETIMEDOUT != errno)
 		{
@@ -190,7 +191,7 @@ static void *thread_start(void *arg)
 		int msgsize = mq_receive(mq, (char *)&msgcmd, sizeof(msg_cmd), &prio);
 		if (msgsize >= 0)
 		{
-			dbg(PRINT_MSGQ, "Received %d: cmd %d\n", msgsize, msgcmd.cmd);
+			dbg(PRINT_MSGQ, "Received cmd %d, size %d\n", msgcmd.cmd, msgsize);
 #if 0
 			switch (msgcmd.cmd) {
 				case 1:
@@ -206,10 +207,8 @@ static void *thread_start(void *arg)
 			if (HEAPWALK_INCREMENT == msgcmd.cmd)
 			{
 				mqsend = mq_open("/mq_util", O_WRONLY);
-				if (mqsend < 0)
-				{
-					dbg(PRINT_ERROR, "Error, cannot open the queue: %s.\n",
-						strerror(errno));
+				if (mqsend < 0) {
+					dbg(PRINT_ERROR, "Error, cannot open mq_util queue: %s.\n", strerror(errno));
 				}
 				else
 				{
@@ -232,10 +231,8 @@ static void *thread_start(void *arg)
 			else if (HEAPWALK_FULL == msgcmd.cmd)
 			{
 				mqsend = mq_open("/mq_util", O_WRONLY);
-				if (mqsend < 0)
-				{
-					dbg(PRINT_ERROR, "Error, cannot open the queue: %s.\n",
-						strerror(errno));
+				if (mqsend < 0) {
+					dbg(PRINT_ERROR, "Error, cannot open mq_util queue: %s.\n", strerror(errno));
 				}
 				else
 				{
@@ -258,9 +255,8 @@ static void *thread_start(void *arg)
 			else if (HEAPWALK_MMAP_ENTRIES == msgcmd.cmd)
 			{
 				mqsend = mq_open("/mq_util", O_WRONLY);
-				if (mqsend < 0)
-				{
-					dbg(PRINT_ERROR, "Error, cannot open the queue: %s.\n", strerror(errno));
+				if (mqsend < 0) {
+					dbg(PRINT_ERROR, "Error, cannot open mq_util queue: %s.\n", strerror(errno));
 				}
 				else
 				{
@@ -287,7 +283,7 @@ static void *thread_start(void *arg)
 		}
 		else
 		{
-			dbg(PRINT_ERROR, "Error, mq_receive: %s.\n",
+			dbg(PRINT_ERROR, "Error, mq_receive from mq_util: %s.\n",
 				strerror(errno));
 			sleep(1);
 		}
@@ -331,6 +327,7 @@ __attribute__((constructor)) void heapwalk_thread_start()
 	pthread_attr_t attr;
 	pthread_t ptd;
 	pthread_mutexattr_t mutexattr;
+
 	pthread_mutexattr_init(&mutexattr);
 	pthread_mutexattr_settype(&mutexattr, PTHREAD_MUTEX_RECURSIVE);
 	pthread_mutex_init(&lock, &mutexattr);
@@ -339,7 +336,6 @@ __attribute__((constructor)) void heapwalk_thread_start()
 
 	pthread_create(&ptd, &attr, &thread_start, NULL);
 	// pthread_join(ptd, NULL);
-	// pthread_mutex_destroy(&lock);
 	pthread_attr_destroy(&attr);
 }
 

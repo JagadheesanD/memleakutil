@@ -98,7 +98,7 @@ mqd_t createMq()
  * @param pid The process ID of the target process.
  * @param isSelfTest Flag indicating whether this is a self-test operation.
  */
-void storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
+int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 {
 	msg_resp msgresp;
 	unsigned int prio;
@@ -110,7 +110,7 @@ void storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 	if (NULL == fpHWalk)
 	{
 		dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
-		return;
+		return 1;
 	}
 	FILE *fpCurrent = fpHWalk;
 	FILE *fpHWFull;
@@ -122,7 +122,7 @@ void storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 		{
 			dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
 			fclose(fpHWalk);
-			return;
+			return 1;
 		}
 		fpCurrent = fpHWFull;
 	}
@@ -135,12 +135,15 @@ void storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 		clock_gettime(CLOCK_REALTIME, &tm);
 		tm.tv_sec += 10;
 		msgsize = mq_timedreceive(mqrecv, (char *)&msgresp, sizeof(msg_resp), &prio, &tm);
-		if (!msgsize && (ETIMEDOUT == errno))
-		{
-			dbg(PRINT_MUST, "%s: Giving up..waited for 10 secs\n", __FUNCTION__);
-			break;
+		if (-1 == msgsize) {
+			if (ETIMEDOUT == errno) {
+				dbg(PRINT_MUST, "%s:%d: Giving up..waited for 10 secs\n", __FUNCTION__, __LINE__);
+			}else {
+				dbg(PRINT_MUST, "%s:%d: mq_timedreceive failed [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+			}
+			return 1;
 		}
-		if (msgsize)
+		else if (msgsize)
 		{
 			unsigned int info = msgresp.numItemOrInfo & 0x30000000;
 			if (info)
@@ -174,6 +177,7 @@ void storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 			}
 		}
 	}
+	return 0;
 }
 
 MMAP_anon *mmapAnon, *mmapAnonTail;
@@ -216,6 +220,28 @@ void addAnonEntry(MMAP_anon addMe)
 	}
 }
 
+/**
+ * @brief Frees mmapAnon list entries.
+ *
+ * This function frees all anon memory entry from the linked list of mmapAnon.
+ *
+ * @param void.
+ */
+void removeAnonEntries()
+{
+	MMAP_anon *tmprem;
+	while (mmapAnon) {
+		tmprem = mmapAnon;
+		mmapAnon = mmapAnon->next;
+		free(tmprem);
+		/* care to set prev for tmprem?? */
+		if (mmapAnon) {
+			mmapAnon->prev = NULL;
+		}
+	}
+	mmapAnon = mmapAnonTail = NULL;
+}
+
 char storedTime[32];
 typedef struct threadstat
 {
@@ -225,6 +251,7 @@ typedef struct threadstat
 	struct threadstat *next;
 } threadStat;
 threadStat *threadStatHead;
+int prnThreadStatCmd;
 
 /**
  * @brief Adds a thread statistics entry.
@@ -253,6 +280,7 @@ void addThreadStatEntry(int tid, unsigned long size)
 	{
 		tmp->tid = tid;
 		tmp->allocationSize = size;
+		tmp->next = NULL;
 	}
 	else
 	{
@@ -319,7 +347,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 	if (HEAPWALK_MMAP_ENTRIES == cmd)
 	{
 		char mmapTmpArray[128];
-		sprintf(mmapTmpArray, "date > /tmp/pmap_%d.txt; pmap -x %d > /tmp/pmap_%d.txt", pid, pid, pid);
+		sprintf(mmapTmpArray, "date > /tmp/pmap_%d.txt; pmap -x %d >> /tmp/pmap_%d.txt", pid, pid, pid);
 		system(mmapTmpArray); // Replace with popen.. TODO
 		sprintf(mmapTmpArray, "/tmp/pmap_%d.txt", pid);
 		FILE *fpMmap = fopen(mmapTmpArray, "r");
@@ -418,19 +446,17 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 			}
 			tmpprn = tmpprn->next;
 		}
+		removeAnonEntries();
 	}
 	else
 	{
-		static bool isFullWalk = 0;
 		if (HEAPWALK_FULL == cmd)
 		{
 			sprintf(heapwalkFile, "/tmp/hpf_%d.dat", pid);
-			isFullWalk = 1;
 		}
 		else
 		{
 			sprintf(heapwalkFile, "/tmp/hp_%d.dat", pid);
-			isFullWalk = 0;
 		}
 
 		FILE *fpHWalk = fopen(heapwalkFile, "rb");
@@ -555,10 +581,10 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 				{
 					PRINT("HeapSize for walked thread(%d): %llu Bytes\n", tid, threadAllocationOnly);
 				}
-				if (!isFullWalk)
-				{
+				if (prnThreadStatCmd == cmd)
+				{   
 					printThreadStat();
-					PRINT("TotalHeapSize: %lu\nTool Overhead: %lu\n", msgresp.totalHeapSize, msgresp.totalOverhead);
+					PRINT("TotalHeapSize: %lu\nTool Overhead: %lu\n\n", msgresp.totalHeapSize, msgresp.totalOverhead);
 				}
 				// dbg(PRINT_MUST, "Received Msgs %u sequence %u\n", totalMsgs, msgSeq);
 			}
@@ -665,121 +691,138 @@ int main(int argc, char *argv[])
 			dbg(PRINT_MUST, "Error, cannot open the queue: %s, error: %s.\n", mq_name, strerror(errno));
 			continue;
 		}
-		PRINT("1. Heapwalk New allocations\n   %s\n", "-Shows newly allocated and not free'd entries after previous Heapwalk");
-		PRINT("2. Heapwalk all allocations\n   %s\n", "-Shows all entries");
-		PRINT("3. Map heap vs mmap entries\n  %s\n", "-Prints anon distribution of entries and % mapping of heap. Available with OPTIMIZE_MQ_TRANSFER");
-		PRINT("4. Mark all allocations as walked\n   %s\n", "-Doesn't show any entries, but marks all as walked");
-		PRINT("5. Unmark walked allocations\n   %s\n", "-Doesn't show any entries, but subsequent walk shows all entries");
-		PRINT("6. Exit\n   %s\n", "-Quits this utility..can be invoked again");
-		PRINT("Enter cmd to send: ");
-		scanf("%d", &msgcmd.cmd);
+		while (0 < mqsend) {
+			PRINT("1. Heapwalk New allocations\n   %s\n", "-Shows newly allocated and not free'd entries after previous Heapwalk");
+			PRINT("2. Heapwalk all allocations\n   %s\n", "-Shows all entries");
+			PRINT("3. Map heap vs mmap entries\n  %s\n", "-Prints anon distribution of entries and % mapping of heap. Available with OPTIMIZE_MQ_TRANSFER");
+			PRINT("4. Mark all allocations as walked\n   %s\n", "-Doesn't show any entries, but marks all as walked");
+			PRINT("5. Unmark walked allocations\n   %s\n", "-Doesn't show any entries, but subsequent walk shows all entries");
+			PRINT("6. Return\n   %s\n", "-Return to explore different Process");
+			PRINT("Enter cmd to send: ");
+			scanf("%d", &msgcmd.cmd);
 
-		msgcmd.cmd |= HEAPWALK_BASE;
+			msgcmd.cmd |= HEAPWALK_BASE;
+			prnThreadStatCmd = 0;
 
-		switch (msgcmd.cmd)
-		{
-		case HEAPWALK_MMAP_ENTRIES:
+			switch (msgcmd.cmd)
+			{
+			case HEAPWALK_MMAP_ENTRIES:
+				prnThreadStatCmd = HEAPWALK_BASE;
 #ifndef OPTIMIZE_MQ_TRANSFER
-			PRINT("Cmd supported only with OPTIMIZE_MQ_TRANSFER, continuing..\n");
-			break;
+				PRINT("Cmd supported only with OPTIMIZE_MQ_TRANSFER, continuing..\n");
+				break;
 #endif
-		case HEAPWALK_INCREMENT:
-		case HEAPWALK_FULL:
-		{
-			int threadid = 0;
-			if (HEAPWALK_MMAP_ENTRIES != msgcmd.cmd)
+			case HEAPWALK_INCREMENT:
+				prnThreadStatCmd = HEAPWALK_INCREMENT;
+			case HEAPWALK_FULL:
 			{
-				PRINT("Enter threadid (0 for all):");
-				scanf("%d", &threadid);
-				PRINT("Walking only for thread %d\n", threadid);
-			}
-			dbg(PRINT_MSGQ, "%s: sending cmd %d on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
-			if (-1 != mq_send(mqsend, (const char *)&msgcmd, sizeof(msg_cmd), 0))
-			{
-#ifdef OPTIMIZE_MQ_TRANSFER
-				storeHeapwalk(mqrecv, msgcmd.cmd, msgcmd.pid, 0);
-				processHeapwalk(msgcmd.cmd, msgcmd.pid, threadid, 0, NULL, NULL, NULL);
-#else
-				msg_resp msgresp;
-				unsigned int prio;
-				struct timespec tm;
-				int msgsize = sizeof(msg_resp);
-				while (0 != msgsize)
-				{
-					clock_gettime(CLOCK_REALTIME, &tm);
-					tm.tv_sec += 10;
-					msgsize = mq_timedreceive(mqrecv, (char *)&msgresp, sizeof(msg_resp), &prio, &tm);
-					if (!msgsize && (ETIMEDOUT == errno))
-					{
-						dbg(PRINT_MUST, "%s: Giving up..waited for 10 secs\n", __FUNCTION__);
-						break;
-					}
-					if (msgsize && (-1 == msgresp.seq))
-					{
-						dbg(PRINT_MUST, "End of List\n");
-#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
-						dbg(PRINT_MUST, "%s\n", msgresp.msg);
-#endif
-						break;
-					}
-					if (!strcmp(msgresp.msg, "No new allocations") ||
-						!strcmp(msgresp.msg, "Already walked:") ||
-						!strcmp(msgresp.msg, "New allocations:"))
-					{
-						dbg(PRINT_WALK, "%s\n", msgresp.msg);
-						continue;
-					}
-					else if (1 == msgresp.seq)
-					{
-						dbg(PRINT_WALK, "Pointer Size RA ThreadID AllocationTime\n");
-					}
-					dbg(PRINT_WALK, "%d) %s\n", msgresp.seq, msgresp.msg);
+				if (!prnThreadStatCmd) {
+					prnThreadStatCmd = HEAPWALK_FULL;
 				}
+				int threadid = 0;
+				if (HEAPWALK_MMAP_ENTRIES != msgcmd.cmd)
+				{
+					PRINT("Enter threadid (0 for all):");
+					scanf("%d", &threadid);
+					if (threadid) {
+						PRINT("Walking only for thread %d\n", threadid);
+					}
+				}
+				dbg(PRINT_MSGQ, "%s: sending cmd %d on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
+				if (-1 != mq_send(mqsend, (const char *)&msgcmd, sizeof(msg_cmd), 0))
+				{
+#ifdef OPTIMIZE_MQ_TRANSFER
+					if (!storeHeapwalk(mqrecv, msgcmd.cmd, msgcmd.pid, 0)) {
+						processHeapwalk(msgcmd.cmd, msgcmd.pid, threadid, 0, NULL, NULL, NULL);
+					} else {
+						dbg(PRINT_ERROR, "storeHeapwalk failed\n");
+					}
+#else
+					msg_resp msgresp;
+					unsigned int prio;
+					struct timespec tm;
+					int msgsize = sizeof(msg_resp);
+					while (0 != msgsize)
+					{
+						clock_gettime(CLOCK_REALTIME, &tm);
+						tm.tv_sec += 10;
+						msgsize = mq_timedreceive(mqrecv, (char *)&msgresp, sizeof(msg_resp), &prio, &tm);
+						if (-1 == msgsize) {
+							if (ETIMEDOUT == errno) {
+								dbg(PRINT_MUST, "%s:%d: Giving up..waited for 10 secs\n", __FUNCTION__, __LINE__);
+							}else {
+								dbg(PRINT_MUST, "%s:%d: mq_timedreceive failed [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+							}
+							break;
+						}
+						if (0 < msgsize && (-1 == msgresp.seq))
+						{
+							dbg(PRINT_MUST, "End of List\n");
+#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
+							dbg(PRINT_MUST, "%s\n", msgresp.msg);
 #endif
+							break;
+						}
+						if (!strcmp(msgresp.msg, "No new allocations") ||
+							!strcmp(msgresp.msg, "Already walked:") ||
+							!strcmp(msgresp.msg, "New allocations:"))
+						{
+							dbg(PRINT_WALK, "%s\n", msgresp.msg);
+							continue;
+						}
+						else if (1 == msgresp.seq)
+						{
+							dbg(PRINT_WALK, "Pointer Size RA ThreadID AllocationTime\n");
+						}
+						dbg(PRINT_WALK, "%d) %s\n", msgresp.seq, msgresp.msg);
+					}
+#endif
+				}
+				else
+				{
+					dbg(PRINT_ERROR, "msgsnd failed, %s\n", strerror(errno));
+				}
 			}
-			else
-			{
-				dbg(PRINT_ERROR, "msgsnd failed, %s\n", strerror(errno));
+			break;
+
+			case HEAPWALK_MARKALL:
+				dbg(PRINT_MSGQ, "%s: sending cmd %d on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
+				if (-1 == mq_send(mqsend, (const char *)&msgcmd, sizeof(msg_cmd), 0))
+				{
+					dbg(PRINT_ERROR, "msgsnd failed, %s\n", strerror(errno));
+				}
+				else
+				{
+					dbg(PRINT_MUST, "Marked. heapwalk will list new allocations from now on\n");
+				}
+				break;
+
+			case HEAPWALK_RESET_MARKED:
+				dbg(PRINT_MSGQ, "%s: sending cmd %d on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
+				if (-1 == mq_send(mqsend, (const char *)&msgcmd, sizeof(msg_cmd), 0))
+				{
+					dbg(PRINT_ERROR, "msgsnd failed, %s\n", strerror(errno));
+				}
+				else
+				{
+					dbg(PRINT_MUST, "Reset done. heapwalk will list all allocations\n");
+				}
+				break;
+
+			case HEAPWALK_EXIT:
+				mq_close(mqsend);
+				mqsend = -1;
+				break;
+
+			default:
+				dbg(PRINT_ERROR, "Invalid cmd 0x%x...continuing\n", msgcmd.cmd);
+				printf("This Utility Built with:\nMEMWRAP_COMMANDS_VERSION=%d\nOPTIMIZE_MQ_TRANSFER_FOR_CMD=%c\nPREPEND_LISTDATA_FOR_CMD=%c\nMAINTAIN_SINGLE_LIST_FOR_CMD=%c\n\n",
+					   MEMWRAP_COMMANDS_VERSION, cOPTIMIZE_MQ_TRANSFER_FOR_CMD, cPREPEND_LISTDATA_FOR_CMD, cMAINTAIN_SINGLE_LIST_FOR_CMD);
+				break;
 			}
 		}
-		break;
-
-		case HEAPWALK_MARKALL:
-			dbg(PRINT_MSGQ, "%s: sending cmd %d on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
-			if (-1 == mq_send(mqsend, (const char *)&msgcmd, sizeof(msg_cmd), 0))
-			{
-				dbg(PRINT_ERROR, "msgsnd failed, %s\n", strerror(errno));
-			}
-			else
-			{
-				dbg(PRINT_MUST, "Marked. heapwalk will list new allocations from now on\n");
-			}
-			break;
-
-		case HEAPWALK_RESET_MARKED:
-			dbg(PRINT_MSGQ, "%s: sending cmd %d on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
-			if (-1 == mq_send(mqsend, (const char *)&msgcmd, sizeof(msg_cmd), 0))
-			{
-				dbg(PRINT_ERROR, "msgsnd failed, %s\n", strerror(errno));
-			}
-			else
-			{
-				dbg(PRINT_MUST, "Reset done. heapwalk will list all allocations\n");
-			}
-			break;
-
-		case HEAPWALK_EXIT:
-			mq_close(mqsend);
-			mq_close(mqrecv);
-			mq_unlink("/mq_util");
-			exit(0);
-
-		default:
-			dbg(PRINT_ERROR, "Invalid cmd 0x%x...continuing\n", msgcmd.cmd);
-			printf("This Utility Built with:\nMEMWRAP_COMMANDS_VERSION=%d\nOPTIMIZE_MQ_TRANSFER_FOR_CMD=%c\nPREPEND_LISTDATA_FOR_CMD=%c\nMAINTAIN_SINGLE_LIST_FOR_CMD=%c\n\n",
-				   MEMWRAP_COMMANDS_VERSION, cOPTIMIZE_MQ_TRANSFER_FOR_CMD, cPREPEND_LISTDATA_FOR_CMD, cMAINTAIN_SINGLE_LIST_FOR_CMD);
-			break;
-		}
+	}
+	if (-1 != mqsend) {
 		mq_close(mqsend);
 	}
 	mq_close(mqrecv);
