@@ -494,6 +494,13 @@ void runAllocationTests(mqd_t mq)
 	}
 
 	dbg(PRINT_MUST, "Total test cases: %d [Pass %d Fail %d]\n", passed+failed, passed, failed);
+
+	FILE *fp = fopen("/tmp/memleakutil_selftest.txt", "a");
+	if (NULL != fp) {
+		fprintf(fp, "%d:\t\t%s: Pass %d Fail %d\n", 
+				getpid(), __FUNCTION__, passed, failed);
+		fclose(fp);
+	}
 	sleep (3);
 }
 
@@ -1773,6 +1780,12 @@ void runListTests(mqd_t mq)
 	}
 
 	dbg(PRINT_MUST, "Total test cases: %d [Pass %d Fail %d]\n", passed+failed, passed, failed);
+	FILE *fp = fopen("/tmp/memleakutil_selftest.txt", "a");
+	if (NULL != fp) {
+		fprintf(fp, "%d:\t\t%s:       Pass %d Fail %d\n", 
+				getpid(), __FUNCTION__, passed, failed);
+		fclose(fp);
+	}
 	sleep (3);
 }
 
@@ -1902,7 +1915,17 @@ void selftest()
 			}
 		}
 	}
-	dbg(PRINT_MUST, "%s: Pause..%d\n", __FUNCTION__, getpid());
+	FILE *fp = fopen("/tmp/memleakutil_selftest.txt", "r");
+	if (NULL != fp) {
+		char str[256];
+		while (fread(str, 256, 1, fp)) {
+			PRINT("%s", str);
+		}
+		fclose(fp);
+	}
+
+	dbg(PRINT_MUST, "%s: sleep 120 secs before pausing..%d\n", __FUNCTION__, getpid());
+	sleep(120);
 	pause();
 	sem_destroy(selftest_sem);
 	//sem_close(selftest_sem);
@@ -1910,6 +1933,7 @@ void selftest()
 
 	mq_close(mqrecv);
 	mq_unlink("/mq_util");
+	dbg(PRINT_MUST, "%s: Pause..%d\n", __FUNCTION__, getpid());
 	exit(0);
 }
 #endif

@@ -38,7 +38,19 @@ mqd_t createMq()
 	mqrecv = mq_open("/mq_util", O_CREAT | O_RDONLY, QUEUE_PERMISSION, &mqattr);
 	if (0 > mqrecv)
 	{
-		if (EINVAL == errno)
+		/* EINVAL - With O_CREAT and setting mqattr->mq_maxmsg, mqattr->mq_msqsize with
+		 * 	    QUEUE_MAXMSG (256) and sizeof(msg_resp) (4824 - when OPTIMIZE_MQ_TRANSFER is defined)
+		 *          this error is reported. In that case, we try opening with /proc/sys/fs/mqueue/msg_max 
+		 *          value present. If still reporting error, then /proc/sys/fs/mqueue/msgsize_max needs
+		 *          to be considered, and change MAX_MSG_XFER in inc/memfnswrap.h such that msg_resp size
+		 *          is lower than /proc/sys/fs/mqueue/msgsize_max
+		 *
+		 * EMFILE - In some platforms, even for the above error, this errno is reported. 
+		 *          Instead of reading /proc/pid/limits or get/set via getrlimit/setrlimit, we try 
+		 *          manipulating QUEUE_MAXMSG 
+		 */
+
+		if ((EINVAL == errno) || (EMFILE == errno))
 		{
 			dbg(PRINT_MUST, "Error, cannot open the queue /mq_util [%s]...Trying with default mq_maxmsg size\n", strerror(errno));
 			FILE *fp;
@@ -60,6 +72,7 @@ mqd_t createMq()
 	if (0 > mqrecv)
 	{
 		dbg(PRINT_FATAL, "Error, cannot open the queue: /mq_util %s.\n", strerror(errno));
+		dbg(PRINT_FATAL, "Try reducing msg_resp by changing MAX_MSG_XFER (with OPTIMIZE_MQ_TRANSFER)\n or MQ_MSG_SIZE and try again\n");
 		exit(1);
 	}
 
@@ -656,6 +669,10 @@ int main(int argc, char *argv[])
 		if (!strcmp(argv[1], "selftest"))
 		{
 #ifdef SELF_TEST
+			FILE *fp = fopen("/tmp/memleakutil_selftest.txt", "w");
+			if (NULL != fp) {
+                		fclose(fp);
+        		}
 			selftest();
 #else
 			dbg(PRINT_MUST, "Build with SELF_TEST compiler directive to run selftest\n");
