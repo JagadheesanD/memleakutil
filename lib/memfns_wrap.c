@@ -13,6 +13,7 @@
 #include <time.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <malloc.h>
 #include "memfns_wrap.h"
 
 #ifndef SELF_TEST
@@ -192,18 +193,7 @@ static void *thread_start(void *arg)
 		if (msgsize >= 0)
 		{
 			dbg(PRINT_MSGQ, "Received cmd %d, size %d\n", msgcmd.cmd, msgsize);
-#if 0
-			switch (msgcmd.cmd) {
-				case 1:
-				case 2:
-				case 3:
-					mqsend = mq_open("/mq_util", O_WRONLY);
-					if(mqsend < 0) {
-						dbg(PRINT_ERROR, "Error, cannot open the queue: %s.\n", strerror(errno));
-					} else {
-					}
-			}
-#endif
+			
 			if (HEAPWALK_INCREMENT == msgcmd.cmd)
 			{
 				mqsend = mq_open("/mq_util", O_WRONLY);
@@ -277,6 +267,12 @@ static void *thread_start(void *arg)
 			{
 				dbg(PRINT_MSGQ, "Calling heapwalkReset(). cmd %d\n", msgcmd.cmd);
 				heapwalkReset();
+			}
+			else if (HEAPWALK_MALLOC_STATS == msgcmd.cmd)
+			{
+				dbg(PRINT_MSGQ, "Calling malloc_stats(). cmd %d\n", msgcmd.cmd);
+				malloc_stats();
+				PRINT("\n");
 			}
 			else
 				dbg(PRINT_ERROR, "Invalid cmd 0x%x received\n", msgcmd.cmd);

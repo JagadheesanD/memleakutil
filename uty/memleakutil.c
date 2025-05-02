@@ -71,8 +71,24 @@ mqd_t createMq()
 
 	if (0 > mqrecv)
 	{
-		dbg(PRINT_FATAL, "Error, cannot open the queue: /mq_util %s.\n", strerror(errno));
-		dbg(PRINT_FATAL, "Try reducing msg_resp by changing MAX_MSG_XFER (with OPTIMIZE_MQ_TRANSFER)\n or MQ_MSG_SIZE and try again\n");
+		dbg(PRINT_FATAL, "Error, cannot open the queue: /mq_util [%s].\n", strerror(errno));
+		if ((EINVAL == errno) || (EMFILE == errno))
+		{
+			FILE *fp;
+			fp = fopen("/proc/sys/fs/mqueue/msgsize_max", "r");
+			if (fp)
+			{
+				char msgsize_max[32];
+				if (fgets(msgsize_max, sizeof(msgsize_max) - 1, fp) != NULL)
+				{
+					int maxmsgsize_max = atoi(msgsize_max);
+					if (sizeof(msg_resp) > maxmsgsize_max) {
+						dbg(PRINT_FATAL, "Try reducing msg_resp by changing MAX_MSG_XFER (with OPTIMIZE_MQ_TRANSFER)\n or MQ_MSG_SIZE and try again\n");
+					}
+				}
+				fclose(fp);
+			}
+		}
 		exit(1);
 	}
 
@@ -419,6 +435,8 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 		{
 			PRINT("\tGenerated Time: %s\n", storedTime);
 		}
+		unsigned long anonRSSTotal = 0, heapTotal = 0;
+
 		PRINT("\tmmapStart-mmapEnd\t\tSize(Kb)\tRSS(Kb)\tHeap'd(Bytes)\tHeap'd(%s)vsRSS\n", "%");
 		while (tmpprn)
 		{
@@ -457,9 +475,12 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 						  tmpprn->startAddress, tmpprn->endAddress, tmpprn->size, tmpprn->rss);
 				}
 			}
+			anonRSSTotal += tmpprn->rss;
+			heapTotal += tmpprn->heapEntries;
 			tmpprn = tmpprn->next;
 		}
 		removeAnonEntries();
+		PRINT("TOTAL HEAP vs Anon percentage: %f\n\n", anonRSSTotal?((double)heapTotal / ((double)anonRSSTotal * 1024))*100:0); 
 	}
 	else
 	{
@@ -714,7 +735,8 @@ int main(int argc, char *argv[])
 			PRINT("3. Map heap vs mmap entries\n  %s\n", "-Prints anon distribution of entries and % mapping of heap. Available with OPTIMIZE_MQ_TRANSFER");
 			PRINT("4. Mark all allocations as walked\n   %s\n", "-Doesn't show any entries, but marks all as walked");
 			PRINT("5. Unmark walked allocations\n   %s\n", "-Doesn't show any entries, but subsequent walk shows all entries");
-			PRINT("6. Return\n   %s\n", "-Return to explore different Process");
+			PRINT("6. Call malloc_stats\n   %s\n", "-Calls malloc_stats API that prints the details in stderr");
+			PRINT("7. Return\n   %s\n", "-Return to explore different Process");
 			PRINT("Enter cmd to send: ");
 			scanf("%d", &msgcmd.cmd);
 
@@ -812,6 +834,7 @@ int main(int argc, char *argv[])
 				{
 					dbg(PRINT_MUST, "Marked. heapwalk will list new allocations from now on\n");
 				}
+				sleep(3);
 				break;
 
 			case HEAPWALK_RESET_MARKED:
@@ -824,6 +847,20 @@ int main(int argc, char *argv[])
 				{
 					dbg(PRINT_MUST, "Reset done. heapwalk will list all allocations\n");
 				}
+				sleep(3);
+				break;
+
+			case HEAPWALK_MALLOC_STATS:
+				dbg(PRINT_MSGQ, "%s: sending cmd %d on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
+				if (-1 == mq_send(mqsend, (const char *)&msgcmd, sizeof(msg_cmd), 0))
+				{
+					dbg(PRINT_ERROR, "msgsnd failed, %s\n", strerror(errno));
+				}
+				else
+				{
+					dbg(PRINT_MUST, "malloc_stats requested. By default malloc_stats prints in stderr\n");
+				}
+				sleep(3);
 				break;
 
 			case HEAPWALK_EXIT:

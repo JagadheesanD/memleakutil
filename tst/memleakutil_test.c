@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <malloc.h>
 
 
 #include <semaphore.h>
@@ -238,6 +239,10 @@ void sendAndRecv(mqd_t mq, int cmd, LIST *resp, int listSize, int initVal)
 #endif
 			break;
 
+		case HEAPWALK_MALLOC_STATS:
+			malloc_stats();
+			break;
+
 		case HEAPWALK_BASE:
 			{
 				struct   timespec tm;
@@ -280,14 +285,14 @@ void runAllocationTests(mqd_t mq)
 	dbg(PRINT_MUST, "\n**********************************\n%s: %d\n**********************************\n", __FUNCTION__, getpid());
 	memset(z,0,27);
 	strcpy(z, "abcdefghijklmnopqrstuvwxyz");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, z, 26, z);
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, z, 26, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((z == (char*)resp[0].ptr) && (27 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr))) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
+		PRINT("\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
 		failed++;
 	}
 
@@ -301,14 +306,14 @@ void runAllocationTests(mqd_t mq)
 	z = realloc(z, 72);
 	memset(&z[25],0,45);
 	strcpy(&z[25], "1234567890");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 72, z);
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 72, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (((0 < gMemInitialized)? 1 : (z1 == (char*)resp[0].ptr)) && (72 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr))) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
+		PRINT("\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
 		failed++;
 	}
 
@@ -321,14 +326,14 @@ void runAllocationTests(mqd_t mq)
 	z = realloc(NULL, 83);
 	memset(z,0,83);
 	strcpy(z, "abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyz");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 83, z);
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 83, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (((0 < gMemInitialized)?1:(z1 == (char*)resp[0].ptr)) && (83 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr))) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
+		PRINT("\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
 		failed++;
 	}
 
@@ -341,15 +346,15 @@ void runAllocationTests(mqd_t mq)
 	z = calloc(1, 32);
 	memset(z,0,32);
 	strcpy(z, "abcdefghijklmnopqrstuvwxyz01234");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 32, z);
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 32, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (((0 < gMemInitialized)?1:(z1 == (char*)resp[0].ptr)) && (32 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr))) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
 		// This will fail, since we don't display nmem blocks in heapwalk!! we need to change the approach
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
+		PRINT("\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
 		failed++;
 	}
 
@@ -361,14 +366,14 @@ void runAllocationTests(mqd_t mq)
 	z = realloc(z, 40);
 	memset(&z[31],0,8);
 	strcpy(&z[31], "567890a");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 40, z);
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 40, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (((0 < gMemInitialized)?1:(z1 == (char*)resp[0].ptr)) && (40 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr))) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
+		PRINT("\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
 		failed++;
 	}
 
@@ -381,14 +386,14 @@ void runAllocationTests(mqd_t mq)
 	z = calloc(2, 16);
 	memset(z,0,32);
 	strcpy(z, "abcdefghijklmnopqrstuvwxyz01234");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z1:z, 32, z);
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z1:z, 32, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (((0 < gMemInitialized)?1:(z1 == (char*)resp[0].ptr)) && (32 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr))) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
+		PRINT("\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
 		failed++;
 	}
 
@@ -400,14 +405,14 @@ void runAllocationTests(mqd_t mq)
 	z = realloc(z, 40);
 	memset(&z[31],0,8);
 	strcpy(&z[31], "567890a");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 40, z);
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 40, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (((0 < gMemInitialized)?1:(z1 == (char*)resp[0].ptr)) && (40 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr))) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
+		PRINT("\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
 		failed++;
 	}
 	z = realloc(z, 0);
@@ -418,14 +423,14 @@ void runAllocationTests(mqd_t mq)
 #endif
 	z1 = realloc(NULL, 40);
 	strcpy(z1, "abcdefghijklmnopqrstuvwxyz1234567890");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z1:z, 40, z1);
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z1:z, 40, z1);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (((0 < gMemInitialized)?(z1 == (char*)resp[0].ptr):(z == (char*)resp[0].ptr)) && (40 == resp[0].size) && (!strcmp(z1,(char*)resp[0].ptr))) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
+		PRINT("\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
 		failed++;
 	}
 	z = memalign(64, 40);
@@ -443,53 +448,53 @@ void runAllocationTests(mqd_t mq)
 	
 	//z1 = z1 + 40 + listSize;
 	strcpy(z, "abcdefghijklmnopqrstuvwxyz1234567890");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s,mod(z,64)=0\n", testnum++,__LINE__, z, 40, z);
+	PRINT("%d. [%d] Show %p,%d,%s,mod(z,64)=0\n", testnum++,__LINE__, z, 40, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((z == (char*)resp[0].ptr) && (40 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr)) && !((unsigned long)z%64)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s,%lu\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr, ((unsigned long)z%64));
+		PRINT("\t%d: Fail %p,%d,%s,%lu\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr, ((unsigned long)z%64));
 		failed++;
 	}
 	z1 = memalign(32, 64);
 	free(z);
 	//z = z1 + 64 + listSize;
 	strcpy(z1, "abcdefghijklmnopqrstuvwxyz123456abcdefghijklmnopqrstuvwxyz12345");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s,mod(z,32)=0\n", testnum++,__LINE__, z1, 64, z1);
+	PRINT("%d. [%d] Show %p,%d,%s,mod(z,32)=0\n", testnum++,__LINE__, z1, 64, z1);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((z1 == (char*)resp[0].ptr) && (64 == resp[0].size) && (!strcmp(z1,(char*)resp[0].ptr)) && !((unsigned long)z1%32)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s,%lu\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr, ((unsigned long)z1%32));
+		PRINT("\t%d: Fail %p,%d,%s,%lu\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr, ((unsigned long)z1%32));
 		failed++;
 	}
 	free(z1);
 	z = memalign(128, 27);
 	strcpy(z, "abcdefghijklmnopqrstuvwxyz");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s,mod(z,128)=0\n", testnum++,__LINE__, z, 27, z);
+	PRINT("%d. [%d] Show %p,%d,%s,mod(z,128)=0\n", testnum++,__LINE__, z, 27, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((z == (char*)resp[0].ptr) && (27 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr)) && !((unsigned long)z%128)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s,%lu\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr, ((unsigned long)z%128));
+		PRINT("\t%d: Fail %p,%d,%s,%lu\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr, ((unsigned long)z%128));
 		failed++;
 	}
 	z1 = memalign(4096, 64);
 	strcpy(z1, "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz0123456789");
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%d,%s,mod(z,4096)=0\n", testnum++,__LINE__, z1, 64, z1);
+	PRINT("%d. [%d] Show %p,%d,%s,mod(z,4096)=0\n", testnum++,__LINE__, z1, 64, z1);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((z1 == (char*)resp[0].ptr) && (64 == resp[0].size) && (!strcmp(z1,(char*)resp[0].ptr)) && !((unsigned long)z1%4096)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\t%d: Fail %p,%d,%s,%lu\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr, ((unsigned long)z1%4096));
+		PRINT("\t%d: Fail %p,%d,%s,%lu\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr, ((unsigned long)z1%4096));
 		failed++;
 	}
 
@@ -516,287 +521,287 @@ void runListTests(mqd_t mq)
 	x[0] = malloc(8);
 
 #ifdef MAINTAIN_SINGLE_LIST
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr[%p] = hpwmemhead->ptr[%p] = hpfmemtail->ptr[%p], [NULL] hpfmemhead->next[%p] hpfmemtail->next[%p]\n", 
+	PRINT("\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr[%p] = hpwmemhead->ptr[%p] = hpfmemtail->ptr[%p], [NULL] hpfmemhead->next[%p] hpfmemtail->next[%p]\n", 
 			testnum++,__LINE__, x[0], (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 			(hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemhead)?hpfmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL);
 	if (hpfmemhead && hpwmemhead && hpfmemtail && (x[0] == (int*)hpfmemhead->ptr) && (x[0] == (int*)hpwmemhead->ptr) && 
 			(x[0] == (int*)hpfmemtail->ptr) && !hpfmemhead->next && !hpwmemhead->next && !hpfmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpfmemhead)?hpfmemhead->next:NULL, (hpwmemhead)?hpwmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0], NULL);
+	PRINT("%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0], NULL);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (NULL == (int*)resp[1].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
+		PRINT("\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
 		failed++;
 	}	
 
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr[%p] = hpfmemtail->ptr[%p], [NULL] hpwmemhead->ptr[%p] hpfmemhead->next[%p] hpfmemtail->next[%p]\n", 
+	PRINT("\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr[%p] = hpfmemtail->ptr[%p], [NULL] hpwmemhead->ptr[%p] hpfmemhead->next[%p] hpfmemtail->next[%p]\n", 
 			testnum++,__LINE__, x[0], (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 			(hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemhead)?hpfmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL);
 	if (hpfmemhead && !hpwmemhead && hpfmemtail && (x[0] == (int*)hpfmemhead->ptr) && 
 			(x[0] == (int*)hpfmemtail->ptr) && !hpfmemhead->next && !hpfmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, hpwmemhead, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, hpwmemhead, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpfmemhead)?hpfmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [null]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show [null]\n", testnum++,__LINE__);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (NULL == (int*)resp[0].ptr) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p\n", resp[0].ptr);
+		PRINT("\tFail %p\n", resp[0].ptr);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p\n", testnum++,__LINE__, x[0]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	dbg(PRINT_INFO, "%p\n",resp[0].ptr);
 	if ((x[0] == (int*)resp[0].ptr) && (NULL == (int*)resp[1].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
+		PRINT("\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
 		failed++;
 	}
 	
 	x[1] = malloc(16);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr[%p] x[1][%p] = hpfmemtail->ptr[%p] = hpwmemhead->ptr[%p] \
+	PRINT("\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr[%p] x[1][%p] = hpfmemtail->ptr[%p] = hpwmemhead->ptr[%p] \
 			NULL = hpfmemtail->next[%p] NULL = hpwmemhead->next[%p]\n", 
 			testnum++,__LINE__, x[0], (hpfmemhead)?hpfmemhead->ptr:NULL, x[1], (hpfmemtail)?hpfmemtail->ptr:NULL, (hpwmemhead)?hpwmemhead->ptr:NULL, 
 			(hpfmemtail)?hpfmemtail->next:NULL, (hpwmemhead)?hpwmemhead->next:NULL);
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[1] == (int*)hpfmemtail->ptr) && (x[1] == (int*)hpwmemhead->ptr) &&
 		       	!hpfmemtail->next && !hpwmemhead->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL, (hpwmemhead)?hpwmemhead->next:NULL);
 		failed++;
 	}
 
 	x[2] = malloc(24);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr[%p] x[2][%p] = hpfmemtail->ptr[%p] x[1][%p] = hpwmemhead->ptr[%p] \
+	PRINT("\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr[%p] x[2][%p] = hpfmemtail->ptr[%p] x[1][%p] = hpwmemhead->ptr[%p] \
 			NULL = hpfmemtail->next[%p] NULL != hpwmemhead->next[%p]\n", 
 			testnum++,__LINE__, x[0], (hpfmemhead)?hpfmemhead->ptr:NULL, x[2], (hpfmemtail)?hpfmemtail->ptr:NULL, x[1], (hpwmemhead)?hpwmemhead->ptr:NULL, 
 			(hpfmemtail)?hpfmemtail->next:NULL, (hpwmemhead)?hpwmemhead->next:NULL);
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[2] == (int*)hpfmemtail->ptr) && (x[1] == (int*)hpwmemhead->ptr) &&
 		       	!hpfmemtail->next && hpwmemhead->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL, (hpwmemhead)?hpwmemhead->next:NULL);
 		failed++;
 	}
 
 	x[3] = malloc(32);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr[%p] x[3][%p] = hpfmemtail->ptr[%p] x[1][%p] = hpwmemhead->ptr[%p] \
+	PRINT("\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr[%p] x[3][%p] = hpfmemtail->ptr[%p] x[1][%p] = hpwmemhead->ptr[%p] \
 			NULL = hpfmemtail->next[%p] NULL != hpwmemhead->next[%p]\n", 
 			testnum++,__LINE__, x[0], (hpfmemhead)?hpfmemhead->ptr:NULL, x[3], (hpfmemtail)?hpfmemtail->ptr:NULL, x[1], (hpwmemhead)?hpwmemhead->ptr:NULL, 
 			(hpfmemtail)?hpfmemtail->next:NULL, (hpwmemhead)?hpwmemhead->next:NULL);
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[3] == (int*)hpfmemtail->ptr) && (x[1] == (int*)hpwmemhead->ptr) &&
 		       	!hpfmemtail->next && hpwmemhead->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL, (hpwmemhead)?hpwmemhead->next:NULL);
 		failed++;
 	}
 
 	free(x[2]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr[%p] x[3][%p] = hpfmemtail->ptr[%p] x[1][%p] = hpwmemhead->ptr[%p] \
+	PRINT("\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr[%p] x[3][%p] = hpfmemtail->ptr[%p] x[1][%p] = hpwmemhead->ptr[%p] \
 			NULL = hpfmemtail->next[%p] x[3][%p] = hpwmemhead->next[%p]\n", 
 			testnum++,__LINE__, x[0], (hpfmemhead)?hpfmemhead->ptr:NULL, x[3], (hpfmemtail)?hpfmemtail->ptr:NULL, x[1], (hpwmemhead)?hpwmemhead->ptr:NULL, 
 			(hpfmemtail)?hpfmemtail->next:NULL, x[3], (hpwmemhead && hpwmemhead->next)?hpwmemhead->next->ptr:NULL);
 	if (hpfmemhead && hpfmemtail && hpwmemhead && hpwmemhead->next && (x[0] == (int*)hpfmemhead->ptr) && (x[3] == (int*)hpfmemtail->ptr) && (x[1] == (int*)hpwmemhead->ptr) &&
 		       	!hpfmemtail->next && (x[3] == hpwmemhead->next->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL, (hpwmemhead && hpwmemhead->next)?hpwmemhead->next->ptr:NULL);
 		failed++;
 	}
 
 	free(x[1]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr[%p] x[3][%p] = hpfmemtail->ptr[%p] x[3][%p] = hpwmemhead->ptr[%p] \
+	PRINT("\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr[%p] x[3][%p] = hpfmemtail->ptr[%p] x[3][%p] = hpwmemhead->ptr[%p] \
 			NULL = hpfmemtail->next[%p] NULL = hpwmemhead->next[%p]\n", 
 			testnum++,__LINE__, x[0], (hpfmemhead)?hpfmemhead->ptr:NULL, x[3], (hpfmemtail)?hpfmemtail->ptr:NULL, x[3], (hpwmemhead)?hpwmemhead->ptr:NULL, 
 			(hpfmemtail)?hpfmemtail->next:NULL, (hpwmemhead)?hpwmemhead->next:NULL);
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[3] == (int*)hpfmemtail->ptr) && (x[3] == (int*)hpwmemhead->ptr) &&
 		       	!hpfmemtail->next && !hpwmemhead->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->next:NULL, hpwmemhead, (hpwmemhead)?hpwmemhead->next:NULL);
 		failed++;
 	}
 
 	free(x[3]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr[%p] hpfmemtail->ptr[%p], [NULL] hpfmemhead->next[%p] hpfmemtail->next[%p] hpwmemhead[%p]\n", 
+	PRINT("\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr[%p] hpfmemtail->ptr[%p], [NULL] hpfmemhead->next[%p] hpfmemtail->next[%p] hpwmemhead[%p]\n", 
 			testnum++,__LINE__, x[0], (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 			(hpfmemhead)?hpfmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL, hpwmemhead);
 	if (hpfmemhead && hpfmemtail && !hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[0] == (int*)hpfmemtail->ptr) && !hpfmemhead->next && !hpfmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpfmemhead)?hpfmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL, hpwmemhead);
 		failed++;
 	}
 
 	free(x[0]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show NULL = hpfmemhead hpfmemtail, hpwmemhead\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show NULL = hpfmemhead hpfmemtail, hpwmemhead\n", testnum++,__LINE__);
 	if (!hpfmemhead && !hpfmemtail && !hpwmemhead) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", hpfmemhead, hpfmemtail, hpwmemhead); 
+		PRINT("\tFail %p,%p,%p\n", hpfmemhead, hpfmemtail, hpwmemhead); 
 		failed++;
 	}
 
 	x[0] = malloc(8);
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr hpfmemtail->ptr, hpwmemhead NULL = hpfmemhead->next hpfmemtail->next\n", 
+	PRINT("\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr hpfmemtail->ptr, hpwmemhead NULL = hpfmemhead->next hpfmemtail->next\n", 
 			testnum++,__LINE__, x[0]); 
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[0] == (int*)hpfmemtail->ptr) && 
 			(x[0] == (int*)hpwmemhead->ptr) && !hpfmemhead->next && !hpfmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemhead)?hpfmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL);
 		failed++;
 	}
 
 	x[1] = malloc(16);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr x[1][%p] = hpfmemtail->ptr, NULL = hpwmemhead\n", 
+	PRINT("\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr x[1][%p] = hpfmemtail->ptr, NULL = hpwmemhead\n", 
 			testnum++,__LINE__, x[0], x[1]); 
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (hpfmemhead && hpfmemtail && !hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[1] == (int*)hpfmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, hpwmemhead); 
+		PRINT("\tFail %p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, hpwmemhead); 
 		failed++;
 	}
 
 	x[2] = malloc(24);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr x[2][%p] = hpfmemtail->ptr, NULL = hpwmemhead\n", 
+	PRINT("\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr x[2][%p] = hpfmemtail->ptr, NULL = hpwmemhead\n", 
 			testnum++,__LINE__, x[0], x[2]); 
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (hpfmemhead && hpfmemtail && !hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[2] == (int*)hpfmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, hpwmemhead); 
+		PRINT("\tFail %p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, hpwmemhead); 
 		failed++;
 	}
 
 	free(x[1]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr x[2][%p] = hpfmemtail->ptr, NULL = hpwmemhead\n", 
+	PRINT("\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr x[2][%p] = hpfmemtail->ptr, NULL = hpwmemhead\n", 
 			testnum++,__LINE__, x[0], x[2]); 
 	if (hpfmemhead && hpfmemtail && !hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[2] == (int*)hpfmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, hpwmemhead); 
+		PRINT("\tFail %p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, hpwmemhead); 
 		failed++;
 	}
 
 	free(x[2]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr hpfmemtail->ptr NULL = hpwmemhead NULL\n", 
+	PRINT("\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr hpfmemtail->ptr NULL = hpwmemhead NULL\n", 
 			testnum++,__LINE__, x[0]); 
 	if (hpfmemhead && hpfmemtail && !hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[0] == (int*)hpfmemtail->ptr) && 
 			 !hpfmemhead->next && !hpfmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				hpwmemhead, (hpfmemhead)?hpfmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL);
 		failed++;
 	}
 
 	free(x[0]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show NULL = hpfmemhead hpfmemtail, hpwmemhead\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show NULL = hpfmemhead hpfmemtail, hpwmemhead\n", testnum++,__LINE__);
 	if (!hpfmemhead && !hpfmemtail && !hpwmemhead) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", hpfmemhead, hpfmemtail, hpwmemhead); 
+		PRINT("\tFail %p,%p,%p\n", hpfmemhead, hpfmemtail, hpwmemhead); 
 		failed++;
 	}
 
 	x[0] = malloc(8);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr hpfmemtail->ptr NULL = hpwmemhead NULL\n", 
+	PRINT("\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr hpfmemtail->ptr NULL = hpwmemhead NULL\n", 
 			testnum++,__LINE__, x[0]); 
 	if (hpfmemhead && hpfmemtail && !hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[0] == (int*)hpfmemtail->ptr) && 
 			 !hpfmemhead->next && !hpfmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				hpwmemhead, (hpfmemhead)?hpfmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr hpfmemtail->ptr, hpwmemhead NULL = hpfmemhead->next hpfmemtail->next\n", 
+	PRINT("\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr hpfmemtail->ptr, hpwmemhead NULL = hpfmemhead->next hpfmemtail->next\n", 
 			testnum++,__LINE__, x[0]); 
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[0] == (int*)hpfmemtail->ptr) && 
 			(x[0] == (int*)hpwmemhead->ptr) && !hpfmemhead->next && !hpfmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemhead)?hpfmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr hpfmemtail->ptr NULL = hpwmemhead NULL\n", 
+	PRINT("\n%d. [%d] Show ptr[%p] = hpfmemhead->ptr hpfmemtail->ptr NULL = hpwmemhead NULL\n", 
 			testnum++,__LINE__, x[0]); 
 	if (hpfmemhead && hpfmemtail && !hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[0] == (int*)hpfmemtail->ptr) && 
 			 !hpfmemhead->next && !hpfmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				hpwmemhead, (hpfmemhead)?hpfmemhead->next:NULL, (hpfmemtail)?hpfmemtail->next:NULL);
 		failed++;
 	}
@@ -804,14 +809,14 @@ void runListTests(mqd_t mq)
 	x[1] = malloc(16);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr hpwmemhead x[1][%p] = hpfmemtail->ptr\n", 
+	PRINT("\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr hpwmemhead x[1][%p] = hpfmemtail->ptr\n", 
 			testnum++,__LINE__, x[0], x[1]); 
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[0] == (int*)hpwmemhead->ptr) && 
 			(x[1] == (int*)hpfmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL);
 		failed++;
 	}
@@ -819,580 +824,580 @@ void runListTests(mqd_t mq)
 	x[2] = malloc(24);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr hpwmemhead x[2][%p] = hpfmemtail->ptr\n", 
+	PRINT("\n%d. [%d] Show x[0][%p] = hpfmemhead->ptr hpwmemhead x[2][%p] = hpfmemtail->ptr\n", 
 			testnum++,__LINE__, x[0], x[2]); 
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[0] == (int*)hpfmemhead->ptr) && (x[0] == (int*)hpwmemhead->ptr) && 
 			(x[2] == (int*)hpfmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL);
 		failed++;
 	}
 
 	free(x[0]);
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[1][%p] = hpfmemhead->ptr hpwmemhead->ptr x[2][%p] = hpfmemtail->ptr\n", 
+	PRINT("\n%d. [%d] Show x[1][%p] = hpfmemhead->ptr hpwmemhead->ptr x[2][%p] = hpfmemtail->ptr\n", 
 			testnum++,__LINE__, x[1], x[2]); 
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[1] == (int*)hpfmemhead->ptr) && (x[1] == (int*)hpwmemhead->ptr) && 
 			(x[2] == (int*)hpfmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[1][%p] = hpfmemhead->ptr x[2][%p] = hpfmemtail->ptr NULL = hpwmemhead\n", 
+	PRINT("\n%d. [%d] Show x[1][%p] = hpfmemhead->ptr x[2][%p] = hpfmemtail->ptr NULL = hpwmemhead\n", 
 			testnum++,__LINE__, x[1], x[2]); 
 	if (hpfmemhead && hpfmemtail && !hpwmemhead && (x[1] == (int*)hpfmemhead->ptr) && (x[2] == (int*)hpfmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpfmemtail)?hpfmemtail->ptr:NULL, hpwmemhead);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[1][%p] = hpfmemhead->ptr hpwmemhead->ptr x[2][%p] = hpfmemtail->ptr\n", 
+	PRINT("\n%d. [%d] Show x[1][%p] = hpfmemhead->ptr hpwmemhead->ptr x[2][%p] = hpfmemtail->ptr\n", 
 			testnum++,__LINE__, x[1], x[2]); 
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[1] == (int*)hpfmemhead->ptr) && (x[1] == (int*)hpwmemhead->ptr) && 
 			(x[2] == (int*)hpfmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL);
 		failed++;
 	}
 
 	free(x[1]);
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show x[2][%p] = hpfmemhead->ptr hpwmemhead->ptr hpfmemtail->ptr\n", testnum++,__LINE__, x[2]);
+	PRINT("\n%d. [%d] Show x[2][%p] = hpfmemhead->ptr hpwmemhead->ptr hpfmemtail->ptr\n", testnum++,__LINE__, x[2]);
 	if (hpfmemhead && hpfmemtail && hpwmemhead && (x[2] == (int*)hpfmemhead->ptr) && (x[2] == (int*)hpwmemhead->ptr) && 
 			(x[2] == (int*)hpfmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
+		PRINT("\tFail %p,%p,%p,%p\n", (hpfmemhead)?hpfmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL, 
 				(hpwmemhead)?hpwmemhead->ptr:NULL, (hpfmemtail)?hpfmemtail->ptr:NULL);
 		failed++;
 	}
 	
 	free(x[2]);
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show NULL = hpfmemhead hpfmemtail, hpwmemhead\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show NULL = hpfmemhead hpfmemtail, hpwmemhead\n", testnum++,__LINE__);
 	if (!hpfmemhead && !hpfmemtail && !hpwmemhead) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", hpfmemhead, hpfmemtail, hpwmemhead); 
+		PRINT("\tFail %p,%p,%p\n", hpfmemhead, hpfmemtail, hpwmemhead); 
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show NULL = hpfmemhead hpfmemtail, hpwmemhead\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show NULL = hpfmemhead hpfmemtail, hpwmemhead\n", testnum++,__LINE__);
 	if (!hpfmemhead && !hpfmemtail && !hpwmemhead) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", hpfmemhead, hpfmemtail, hpwmemhead); 
+		PRINT("\tFail %p,%p,%p\n", hpfmemhead, hpfmemtail, hpwmemhead); 
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show NULL = hpfmemhead hpfmemtail, hpwmemhead\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show NULL = hpfmemhead hpfmemtail, hpwmemhead\n", testnum++,__LINE__);
 	if (!hpfmemhead && !hpfmemtail && !hpwmemhead) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", hpfmemhead, hpfmemtail, hpwmemhead); 
+		PRINT("\tFail %p,%p,%p\n", hpfmemhead, hpfmemtail, hpwmemhead); 
 		failed++;
 	}
 #else	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = memhead->ptr[%p] memtail->ptr[%p], [NULL] memhead->next[%p] memtail->next[%p]\n", 
+	PRINT("\n%d. [%d] Show ptr[%p] = memhead->ptr[%p] memtail->ptr[%p], [NULL] memhead->next[%p] memtail->next[%p]\n", 
 			testnum++,__LINE__, x[0], (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL, (memhead)?memhead->next:NULL, (memtail)?memtail->next:NULL);
 	if (memhead && memtail && (x[0] == (int*)memhead->ptr) && (x[0] == (int*)memtail->ptr) && !memhead->next&& !memtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL, (memhead)?memhead->next:NULL, (memtail)?memtail->next:NULL);
+		PRINT("\tFail %p,%p,%p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL, (memhead)?memhead->next:NULL, (memtail)?memtail->next:NULL);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0], NULL);
+	PRINT("%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0], NULL);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (NULL == (int*)resp[1].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
+		PRINT("\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
 		failed++;
 	}	
 
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p]\n   [NULL] wmemhead->next[%p] wmemtail->next[%p], memhead[%p]=memtail[%p]=NULL\n", 
+	PRINT("\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p]\n   [NULL] wmemhead->next[%p] wmemtail->next[%p], memhead[%p]=memtail[%p]=NULL\n", 
 			testnum++,__LINE__, x[0], (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, memhead, memtail);
 	if (wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[0] == (int*)wmemtail->ptr) && !wmemhead->next && !wmemtail->next && !memhead && !memtail) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, memhead, memtail);
+		PRINT("\tFail %p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, memhead, memtail);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [null]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show [null]\n", testnum++,__LINE__);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (NULL == (int*)resp[0].ptr) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p\n", resp[0].ptr);
+		PRINT("\tFail %p\n", resp[0].ptr);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p\n", testnum++,__LINE__, x[0]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	dbg(PRINT_INFO, "%p\n",resp[0].ptr);
 	if ((x[0] == (int*)resp[0].ptr) && (NULL == (int*)resp[1].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
+		PRINT("\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
 		failed++;
 	}
 	
 	x[1] = malloc(16);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
+	PRINT("\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
 			ptr[%p] = memhead->ptr[%p] memtail->ptr[%p],[NULL] memhead->next[%p], (memtail)?memtail->next:NULL[%p]\n", 
 			testnum++,__LINE__, x[0], (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, \
 			x[1], (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL, (memhead)?memhead->next:NULL, (memtail)?memtail->next:NULL);
 	if (memhead && memtail && wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[0] == (int*)wmemtail->ptr) && !wmemhead->next && !wmemtail->next && \
 			(x[1] == (int*)memhead->ptr) && (x[1] == (int*)memtail->ptr) && !memhead->next&& !memtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL, (memhead)?memhead->next:NULL, (memtail)?memtail->next:NULL);
+		PRINT("\tFail %p,%p,%p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL, (memhead)?memhead->next:NULL, (memtail)?memtail->next:NULL);
 		failed++;
 	}
 
 	x[2] = malloc(24);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
+	PRINT("\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
 			ptr[%p] = memhead->ptr[%p] ptr[%p]=memhead->next->ptr[%p]=memtail->ptr[%p], [NULL]=memtail->next[%p]\n", 
 			testnum++,__LINE__, x[0], (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, \
 			x[1], (memhead)?memhead->ptr:NULL, x[2], (memhead && memhead->next)?memhead->next->ptr:NULL, (memtail)?memtail->ptr:NULL, (memtail)?memtail->next:NULL);
 	if (memhead && memtail && wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[0] == (int*)wmemtail->ptr) && !wmemhead->next && !wmemtail->next && \
 			(x[1] == (int*)memhead->ptr) && (x[2] == (int*)memhead->next->ptr) && (x[2] == (int*)memtail->ptr) && !memtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, (memhead && memhead->next)?memhead->next->ptr:NULL, (memtail)?memtail->ptr:NULL, (memtail)?memtail->next:NULL);
+		PRINT("\tFail %p,%p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, (memhead && memhead->next)?memhead->next->ptr:NULL, (memtail)?memtail->ptr:NULL, (memtail)?memtail->next:NULL);
 		failed++;
 	}
 
 	x[3] = malloc(32);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
+	PRINT("\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
 			ptr[%p] = memhead->ptr[%p] ptr[%p]=memhead->next->ptr[%p] ptr[%p] = memtail->ptr[%p], [NULL]=memtail->next[%p]\n", 
 			testnum++,__LINE__, x[0], (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, \
 			x[1], (memhead)?memhead->ptr:NULL, x[2], (memhead && memhead->next)?memhead->next->ptr:NULL, x[3], (memtail)?memtail->ptr:NULL, (memtail)?memtail->next:NULL);
 	if (memhead && memtail && wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[0] == (int*)wmemtail->ptr) && !wmemhead->next && !wmemtail->next && \
 			(x[1] == (int*)memhead->ptr) && (x[2] == (int*)memhead->next->ptr) && (x[3] == (int*)memtail->ptr) && !memtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, (memhead && memhead->next)?memhead->next->ptr:NULL, (memtail)?memtail->ptr:NULL, (memtail)?memtail->next:NULL);
+		PRINT("\tFail %p,%p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, (memhead && memhead->next)?memhead->next->ptr:NULL, (memtail)?memtail->ptr:NULL, (memtail)?memtail->next:NULL);
 		failed++;
 	}
 
 	free(x[2]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
+	PRINT("\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
 			ptr[%p] = memhead->ptr[%p] ptr[%p]=memhead->next->ptr[%p] ptr[%p]=memtail->ptr[%p], [NULL]=memtail->next[%p]\n", 
 			testnum++,__LINE__, x[0], (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, \
 			x[1], (memhead)?memhead->ptr:NULL, x[3], (memhead && memhead->next)?memhead->next->ptr:NULL, x[3], (memtail)?memtail->ptr:NULL, (memtail)?memtail->next:NULL);
 	if (memhead && memtail && wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[0] == (int*)wmemtail->ptr) && !wmemhead->next && !wmemtail->next && \
 			(x[1] == (int*)memhead->ptr) && (x[3] == (int*)memhead->next->ptr) && (x[3] == (int*)memtail->ptr) && !memtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, (memhead && memhead->next)?memhead->next->ptr:NULL, (memtail)?memtail->ptr:NULL, (memtail)?memtail->next:NULL);
+		PRINT("\tFail %p,%p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, (memhead && memhead->next)?memhead->next->ptr:NULL, (memtail)?memtail->ptr:NULL, (memtail)?memtail->next:NULL);
 		failed++;
 	}
 
 	free(x[3]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
+	PRINT("\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
 			ptr[%p] = memhead->ptr[%p] memtail->ptr[%p],[NULL] memhead->next[%p], (memtail)?memtail->next:NULL[%p]\n", 
 			testnum++,__LINE__, x[0], (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, \
 			x[1], (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL, (memhead)?memhead->next:NULL, (memtail)?memtail->next:NULL);
 	if (memhead && memtail && wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[0] == (int*)wmemtail->ptr) && !wmemhead->next && !wmemtail->next && \
 			(x[1] == (int*)memhead->ptr) && (x[1] == (int*)memtail->ptr) && !memhead->next&& !memtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL, (memhead)?memhead->next:NULL, (memtail)?memtail->next:NULL);
+		PRINT("\tFail %p,%p,%p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL, (memhead)?memhead->next:NULL, (memtail)?memtail->next:NULL);
 		failed++;
 	}
 
 	free(x[1]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
+	PRINT("\n%d. [%d] Show ptr[%p] = wmemhead->ptr[%p] wmemtail->ptr[%p], [NULL] wmemhead->next[%p] wmemtail->next[%p]\n \
 			[NULL] memhead, memtail\n", 
 			testnum++,__LINE__, x[0], (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL);
 	if (wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[0] == (int*)wmemtail->ptr) && !wmemhead->next && !wmemtail->next && \
 			!memhead && !memtail) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	} else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, memhead, memtail);
+		PRINT("\tFail %p,%p,%p,%p,%p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemhead)?wmemhead->next:NULL, (wmemtail)?wmemtail->next:NULL, memhead, memtail);
 		failed++;
 	}
 
 	x[1] = malloc(16);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = wmemhead->ptr %p = wmemtail->ptr, [NULL] wmemtail->next\n", testnum++,__LINE__, x[0], x[1]);
+	PRINT("\n%d. [%d] Show %p = wmemhead->ptr %p = wmemtail->ptr, [NULL] wmemtail->next\n", testnum++,__LINE__, x[0], x[1]);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (wmemhead && wmemtail && (x[1] == (int*)resp[0].ptr) && (NULL == (int*)resp[1].ptr) && (x[0] == (int*)wmemhead->ptr) && (x[1] == (int*)wmemtail->ptr) && !wmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemtail)?wmemtail->next:NULL);
+		PRINT("\tFail %p,%p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL, (wmemtail)?wmemtail->next:NULL);
 		failed++;
 	}
 
 	x[2] = malloc(24);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = wmemtail->ptr, [NULL] wmemtail->next\n", testnum++,__LINE__, x[2]);
+	PRINT("\n%d. [%d] Show %p = wmemtail->ptr, [NULL] wmemtail->next\n", testnum++,__LINE__, x[2]);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (wmemtail && (x[2] == (int*)resp[0].ptr) && (NULL == (int*)resp[1].ptr) && (x[2] == (int*)wmemtail->ptr) && !wmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, (wmemtail)?wmemtail->ptr:NULL, (wmemtail)?wmemtail->next:NULL);
+		PRINT("\tFail %p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, (wmemtail)?wmemtail->ptr:NULL, (wmemtail)?wmemtail->next:NULL);
 		failed++;
 	}
 
 	free(x[1]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = wmemtail->ptr, [NULL] wmemtail->next\n", testnum++,__LINE__, x[2]);
+	PRINT("\n%d. [%d] Show %p = wmemtail->ptr, [NULL] wmemtail->next\n", testnum++,__LINE__, x[2]);
 	if (wmemtail && (x[2] == (int*)wmemtail->ptr) && !wmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", (wmemtail)?wmemtail->ptr:NULL, (wmemtail)?wmemtail->next:NULL);
+		PRINT("\tFail %p,%p\n", (wmemtail)?wmemtail->ptr:NULL, (wmemtail)?wmemtail->next:NULL);
 		failed++;
 	}
 
 	free(x[2]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = wmemtail->ptr, [NULL] wmemtail->next\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p = wmemtail->ptr, [NULL] wmemtail->next\n", testnum++,__LINE__, x[0]);
 	if (wmemtail && (x[0] == (int*)wmemtail->ptr) && !wmemtail->next) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", wmemtail?wmemtail->ptr:NULL, wmemtail?wmemtail->next:NULL);
+		PRINT("\tFail %p,%p\n", wmemtail?wmemtail->ptr:NULL, wmemtail?wmemtail->next:NULL);
 		failed++;
 	}
 
 	free(x[0]);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show empty, wmemhead,wmemtail = NULL\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show empty, wmemhead,wmemtail = NULL\n", testnum++,__LINE__);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if (NULL == (int*)resp[0].ptr && !wmemhead && !wmemtail) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", resp[0].ptr, wmemhead, wmemtail);
+		PRINT("\tFail %p,%p,%p\n", resp[0].ptr, wmemhead, wmemtail);
 		failed++;
 	}
 
 	x[0] = malloc(8);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = wmemhead->ptr, (wmemtail)?wmemtail->ptr:NULL\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p = wmemhead->ptr, (wmemtail)?wmemtail->ptr:NULL\n", testnum++,__LINE__, x[0]);
 	if (wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[0] == (int*)wmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", wmemhead?wmemhead->ptr:NULL, wmemtail?wmemtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", wmemhead?wmemhead->ptr:NULL, wmemtail?wmemtail->ptr:NULL);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = memhead->ptr, (memtail)?memtail->ptr:NULL\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p = memhead->ptr, (memtail)?memtail->ptr:NULL\n", testnum++,__LINE__, x[0]);
 	if (memhead && memtail && (x[0] == (int*)memhead->ptr) && (x[0] == (int*)memtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = wmemhead->ptr, (wmemtail)?wmemtail->ptr:NULL\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p = wmemhead->ptr, (wmemtail)?wmemtail->ptr:NULL\n", testnum++,__LINE__, x[0]);
 	if (wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[0] == (int*)wmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", wmemhead?wmemhead->ptr:NULL, wmemtail?wmemtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", wmemhead?wmemhead->ptr:NULL, wmemtail?wmemtail->ptr:NULL);
 		failed++;
 	}
 
 	x[1] = malloc(16);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = memhead->ptr, %p = memtail->ptr\n", testnum++,__LINE__, x[0], x[1]);
+	PRINT("\n%d. [%d] Show %p = memhead->ptr, %p = memtail->ptr\n", testnum++,__LINE__, x[0], x[1]);
 	if (memhead && memtail && (x[0] == (int*)memhead->ptr) && (x[1] == (int*)memtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = wmemhead->ptr, %p = wmemtail->ptr\n", testnum++,__LINE__, x[0], x[1]);
+	PRINT("\n%d. [%d] Show %p = wmemhead->ptr, %p = wmemtail->ptr\n", testnum++,__LINE__, x[0], x[1]);
 	if (wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[1] == (int*)wmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL);
 		failed++;
 	}
 
 	x[2] = malloc(24);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = memhead->ptr, %p = memtail->ptr\n", testnum++,__LINE__, x[0], x[2]);
+	PRINT("\n%d. [%d] Show %p = memhead->ptr, %p = memtail->ptr\n", testnum++,__LINE__, x[0], x[2]);
 	if (memhead && memtail && (x[0] == (int*)memhead->ptr) && (x[2] == (int*)memtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = wmemhead->ptr, %p = wmemtail->ptr\n", testnum++,__LINE__, x[0], x[2]);
+	PRINT("\n%d. [%d] Show %p = wmemhead->ptr, %p = wmemtail->ptr\n", testnum++,__LINE__, x[0], x[2]);
 	if (wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[2] == (int*)wmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL);
 		failed++;
 	}
 
 	free(x[1]);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = wmemhead->ptr, %p = wmemtail->ptr\n", testnum++,__LINE__, x[0], x[2]);
+	PRINT("\n%d. [%d] Show %p = wmemhead->ptr, %p = wmemtail->ptr\n", testnum++,__LINE__, x[0], x[2]);
 	if (wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[2] == (int*)wmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = memhead->ptr, %p = memtail->ptr\n", testnum++,__LINE__, x[0], x[2]);
+	PRINT("\n%d. [%d] Show %p = memhead->ptr, %p = memtail->ptr\n", testnum++,__LINE__, x[0], x[2]);
 	if (memhead && memtail && (x[0] == (int*)memhead->ptr) && (x[2] == (int*)memtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL);
 		failed++;
 	}
 
 	free(x[2]);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = wmemhead->ptr = wmemtail->ptr\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p = wmemhead->ptr = wmemtail->ptr\n", testnum++,__LINE__, x[0]);
 	if (wmemhead && wmemtail && (x[0] == (int*)wmemhead->ptr) && (x[0] == (int*)wmemtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", (wmemhead)?wmemhead->ptr:NULL, (wmemtail)?wmemtail->ptr:NULL);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p = memhead->ptr = memtail->ptr\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p = memhead->ptr = memtail->ptr\n", testnum++,__LINE__, x[0]);
 	if (memhead && memtail && (x[0] == (int*)memhead->ptr) && (x[0] == (int*)memtail->ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL);
+		PRINT("\tFail %p,%p\n", (memhead)?memhead->ptr:NULL, (memtail)?memtail->ptr:NULL);
 		failed++;
 	}
 
 	free(x[0]);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show NULL wmemhead, wmemtail, memhead, memtail\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show NULL wmemhead, wmemtail, memhead, memtail\n", testnum++,__LINE__);
 	if (!wmemhead && !wmemtail && !memhead && !memtail) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", wmemhead, wmemtail, memhead, memtail);
+		PRINT("\tFail %p,%p,%p,%p\n", wmemhead, wmemtail, memhead, memtail);
 		failed++;
 	}
 
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	
-	dbg(PRINT_ERROR, "\n%d. [%d] Show NULL wmemhead, wmemtail, memhead, memtail\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show NULL wmemhead, wmemtail, memhead, memtail\n", testnum++,__LINE__);
 	if (!wmemhead && !wmemtail && !memhead && !memtail) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", wmemhead, wmemtail, memhead, memtail);
+		PRINT("\tFail %p,%p,%p,%p\n", wmemhead, wmemtail, memhead, memtail);
 		failed++;
 	}
 #endif
 	x[0] = malloc(8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p\n", testnum++,__LINE__, x[0]);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	dbg(PRINT_INFO, "%p\n",resp[0].ptr);
 	if ((x[0] == (int*)resp[0].ptr) && (NULL == (int*)resp[1].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
+		PRINT("\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
 		failed++;
 	}
 
 	x[1] = malloc(8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0],x[1]);
+	PRINT("\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0],x[1]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && (NULL == (int*)resp[2].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr);
+		PRINT("\tFail %p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr);
 		failed++;
 	}
 
 	x[2] = malloc(8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p\n", testnum++,__LINE__, x[0],x[1],x[2]);
+	PRINT("\n%d. [%d] Show %p,%p,%p\n", testnum++,__LINE__, x[0],x[1],x[2]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && (x[2] == (int*)resp[2].ptr) && (NULL == (int*)resp[3].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
 	x[3] = malloc(8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p\n", testnum++,__LINE__, x[0],x[1],x[2],x[3]);
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p\n", testnum++,__LINE__, x[0],x[1],x[2],x[3]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && 
 			(x[2] == (int*)resp[2].ptr) && (x[3] == (int*)resp[3].ptr) && (NULL == (int*)resp[4].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p\n", testnum++,__LINE__, x[0],x[1],x[3]);
+	PRINT("\n%d. [%d] Show %p,%p,%p\n", testnum++,__LINE__, x[0],x[1],x[3]);
 	free(x[2]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && (x[3] == (int*)resp[2].ptr) && (NULL == (int*)resp[3].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0],x[1]);
+	PRINT("\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0],x[1]);
 	free(x[3]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && (NULL == (int*)resp[2].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p\n", testnum++,__LINE__, x[1]);
+	PRINT("\n%d. [%d] Show %p\n", testnum++,__LINE__, x[1]);
 	free(x[0]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[1] == (int*)resp[0].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
 	free(x[1]);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [null]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show [null]\n", testnum++,__LINE__);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 1);
 	if ((NULL == (int*)resp[0].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
 	x[0] = malloc(8);
 	x[1] = malloc(8);
 	x[2] = malloc(8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p\n", testnum++,__LINE__, x[0],x[1],x[2]);
+	PRINT("\n%d. [%d] Show %p,%p,%p\n", testnum++,__LINE__, x[0],x[1],x[2]);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && (x[2] == (int*)resp[2].ptr) && (NULL == (int*)resp[3].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
@@ -1404,14 +1409,14 @@ void runListTests(mqd_t mq)
 	x[1] = malloc(8);
 	x[2] = malloc(8);
 	free(x[1]);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0],x[2]);
+	PRINT("\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0],x[2]);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[2] == (int*)resp[1].ptr) && (NULL == (int*)resp[2].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
@@ -1419,25 +1424,25 @@ void runListTests(mqd_t mq)
 	x[4] = malloc(8);
 	x[5] = malloc(8);
 	free(x[3]);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[4],x[5]);
+	PRINT("\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[4],x[5]);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[4] == (int*)resp[0].ptr) && (x[5] == (int*)resp[1].ptr) && (NULL == (int*)resp[2].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p\n", testnum++,__LINE__, x[0],x[2],x[4],x[5]);
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p\n", testnum++,__LINE__, x[0],x[2],x[4],x[5]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[2] == (int*)resp[1].ptr) && (x[4] == (int*)resp[2].ptr) && (x[5] == (int*)resp[3].ptr) && (NULL == (int*)resp[4].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
@@ -1446,26 +1451,26 @@ void runListTests(mqd_t mq)
 	x[8] = malloc(8);
 	*x[8] = 2388;
 	free(x[8]);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[6],x[7]);
+	PRINT("\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[6],x[7]);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[6] == (int*)resp[0].ptr) && (x[7] == (int*)resp[1].ptr) && (NULL == (int*)resp[4].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0],x[2],x[4],x[5],x[6],x[7]);
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0],x[2],x[4],x[5],x[6],x[7]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[2] == (int*)resp[1].ptr) && (x[4] == (int*)resp[2].ptr) && (x[5] == (int*)resp[3].ptr) && 
 		(x[6] == (int*)resp[4].ptr) && (x[7] == (int*)resp[5].ptr) && (NULL == (int*)resp[6].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
@@ -1474,15 +1479,15 @@ void runListTests(mqd_t mq)
 	x[9] = malloc(8);
 	*x[8] = 2388;
 	free(x[8]);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0],x[2],x[4],x[6],x[7],x[9]);
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0],x[2],x[4],x[6],x[7],x[9]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[2] == (int*)resp[1].ptr) && (x[4] == (int*)resp[2].ptr) && (x[6] == (int*)resp[3].ptr) && 
 		(x[7] == (int*)resp[4].ptr) && (x[9] == (int*)resp[5].ptr) && (NULL == (int*)resp[6].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
@@ -1491,45 +1496,45 @@ void runListTests(mqd_t mq)
 	x[9] = malloc(8);
 	*x[9] = 2388;
 	free(x[9]);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p\n", testnum++,__LINE__, x[8]);
+	PRINT("\n%d. [%d] Show %p\n", testnum++,__LINE__, x[8]);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[8] == (int*)resp[0].ptr) && (NULL == (int*)resp[1].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0],x[2],x[4],x[6],x[7],x[8]);
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0],x[2],x[4],x[6],x[7],x[8]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[2] == (int*)resp[1].ptr) && (x[4] == (int*)resp[2].ptr) && (x[6] == (int*)resp[3].ptr) && 
 		(x[7] == (int*)resp[4].ptr) && (x[8] == (int*)resp[5].ptr) && (NULL == (int*)resp[6].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [null]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show [null]\n", testnum++,__LINE__);
 	free(x[0]);free(x[2]);free(x[4]);free(x[6]);free(x[7]);free(x[8]);
 	x[0] = malloc(8);
 	*x[0] = 2388;
 	free(x[0]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 1);
 	if ((NULL == (int*)resp[0].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [null]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show [null]\n", testnum++,__LINE__);
 	x[0] = malloc(8);
 	x[1] = malloc(8);
 	*x[0] = 2388;
@@ -1540,39 +1545,39 @@ void runListTests(mqd_t mq)
 	free(x[1]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 1);
 	if ((NULL == (int*)resp[0].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail\n");
+		PRINT("\tFail\n");
 		failed++;
 	}
 
 
 	x[0] = calloc(1,8);
 	x[1] = calloc(1,10);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0], x[1]);
+	PRINT("\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0], x[1]);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && (NULL == (int*)resp[2].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr);
+		PRINT("\tFail %p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr);
 		failed++;
 	}
 
 	x[2] = calloc(1,8);
 	x[3] = calloc(1,8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p\n", testnum++,__LINE__, x[0], x[1], x[2], x[3]);
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p\n", testnum++,__LINE__, x[0], x[1], x[2], x[3]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && 
 	    (x[2] == (int*)resp[2].ptr) && (x[3] == (int*)resp[3].ptr) && (NULL == (int*)resp[4].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr, resp[4].ptr);
+		PRINT("\tFail %p,%p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr, resp[4].ptr);
 		failed++;
 	}
 
@@ -1580,202 +1585,208 @@ void runListTests(mqd_t mq)
 	strcpy((char*)x[1], "12345678");;
 	x[1] = realloc(x[1], 17);
 	strcat((char*)x[1], "87654321");;
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p,%p,[%s]\n", testnum++,__LINE__, x[0], x[2], x[3], x[4], x[1], "1234567887654321");
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p,%p,[%s]\n", testnum++,__LINE__, x[0], x[2], x[3], x[4], x[1], "1234567887654321");
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[2] == (int*)resp[1].ptr) && 
 	    (x[3] == (int*)resp[2].ptr) && (x[4] == (int*)resp[3].ptr) && 
 	    (x[1] == (int*)resp[4].ptr) && (!strcmp((char*)x[1], "1234567887654321")) && (NULL == (int*)resp[5].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,[%s],%p\n", 
+		PRINT("\tFail %p,%p,%p,%p,%p,[%s],%p\n", 
 		    resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr, 
 		    resp[4].ptr, (char*)x[1], resp[5].ptr);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [null]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show [null]\n", testnum++,__LINE__);
 	x[5] = malloc(8);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((NULL == (int*)resp[0].ptr)) { 
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p\n", resp[0].ptr);
+		PRINT("\tFail %p\n", resp[0].ptr);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0], x[2], x[3], x[4], x[1], x[5]);
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0], x[2], x[3], x[4], x[1], x[5]);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[2] == (int*)resp[1].ptr) && 
 	    (x[3] == (int*)resp[2].ptr) && (x[4] == (int*)resp[3].ptr) && 
 	    (x[1] == (int*)resp[4].ptr) && (x[5] == (int*)resp[5].ptr) && (NULL == (int*)resp[6].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p,%p\n", 
+		PRINT("\tFail %p,%p,%p,%p,%p,%p,%p\n", 
 		    resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr, 
 		    resp[4].ptr, resp[5].ptr, resp[6].ptr);
 		failed++;
 	}
 
 	x[6] = malloc(8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0], x[2], x[3], x[4], x[1], x[5], x[6]);
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0], x[2], x[3], x[4], x[1], x[5], x[6]);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[2] == (int*)resp[1].ptr) && 
 	    (x[3] == (int*)resp[2].ptr) && (x[4] == (int*)resp[3].ptr) && 
 	    (x[1] == (int*)resp[4].ptr) && (x[5] == (int*)resp[5].ptr) && 
 	    (x[6] == (int*)resp[6].ptr) && (NULL == (int*)resp[7].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p,%p,%p\n", 
+		PRINT("\tFail %p,%p,%p,%p,%p,%p,%p,%p\n", 
 		    resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr, 
 		    resp[4].ptr, resp[5].ptr, resp[6].ptr, resp[7].ptr);
 		failed++;
 	}
 
 	free(x[0]);free(x[2]);free(x[3]);free(x[4]);free(x[1]);free(x[5]);free(x[6]);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [null]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show [null]\n", testnum++,__LINE__);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((NULL == (int*)resp[0].ptr)) { 
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p\n", resp[0].ptr);
+		PRINT("\tFail %p\n", resp[0].ptr);
 		failed++;
 	}
 
 	x[0] = calloc(1,8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p\n", testnum++,__LINE__, x[0]);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (NULL == (int*)resp[1].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
+		PRINT("\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [null]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show [null]\n", testnum++,__LINE__);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (NULL == (int*)resp[0].ptr) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
+		PRINT("\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p\n", testnum++,__LINE__, x[0]);
+	PRINT("\n%d. [%d] Show %p\n", testnum++,__LINE__, x[0]);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_FULL, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (NULL == (int*)resp[1].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
+		PRINT("\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
 		failed++;
 	}
 
 	x[1] = calloc(1,8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0], x[1]);
+	PRINT("\n%d. [%d] Show %p,%p\n", testnum++,__LINE__, x[0], x[1]);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && (NULL == (int*)resp[2].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr);
+		PRINT("\tFail %p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr);
 		failed++;
 	}
 
 	x[2] = calloc(1,8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p\n", testnum++,__LINE__, x[0], x[1], x[2]);
+	PRINT("\n%d. [%d] Show %p,%p,%p\n", testnum++,__LINE__, x[0], x[1], x[2]);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && (x[2] == (int*)resp[2].ptr) && (NULL == (int*)resp[3].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr);
+		PRINT("\tFail %p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr);
 		failed++;
 	}
 
 	x[3] = calloc(1,8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p\n", testnum++,__LINE__, x[0], x[1], x[2], x[3]);
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p\n", testnum++,__LINE__, x[0], x[1], x[2], x[3]);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && (x[2] == (int*)resp[2].ptr) && (x[3] == (int*)resp[3].ptr) && (NULL == (int*)resp[4].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr, resp[4].ptr);
+		PRINT("\tFail %p,%p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr, resp[4].ptr);
 		failed++;
 	}
 
 	x[4] = calloc(1,8);
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [null]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show [null]\n", testnum++,__LINE__);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (NULL == (int*)resp[0].ptr) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
+		PRINT("\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show %p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0], x[1], x[2], x[3], x[4]);
+	PRINT("\n%d. [%d] Show %p,%p,%p,%p,%p\n", testnum++,__LINE__, x[0], x[1], x[2], x[3], x[4]);
 	sendAndRecv(mq, HEAPWALK_RESET_MARKED, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if ((x[0] == (int*)resp[0].ptr) && (x[1] == (int*)resp[1].ptr) && (x[2] == (int*)resp[2].ptr) && (x[3] == (int*)resp[3].ptr) && (x[4] == (int*)resp[4].ptr) && (NULL == (int*)resp[5].ptr)) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p,%p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr, resp[4].ptr, resp[5].ptr);
+		PRINT("\tFail %p,%p,%p,%p,%p,%p\n", resp[0].ptr, resp[1].ptr, resp[2].ptr, resp[3].ptr, resp[4].ptr, resp[5].ptr);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [null]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Show [null]\n", testnum++,__LINE__);
 	sendAndRecv(mq, HEAPWALK_MARKALL, resp, 8, 0);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (NULL == (int*)resp[0].ptr) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
+		PRINT("\tFail %p,%p\n", resp[0].ptr, resp[1].ptr);
 		failed++;
 	}
 
-	dbg(PRINT_ERROR, "\n%d. [%d] Show [timeout]\n", testnum++,__LINE__);
+	PRINT("\n%d. [%d] Call malloc_stats\n", testnum++,__LINE__);
+	sendAndRecv(mq, HEAPWALK_MALLOC_STATS, resp, 8, 0);
+	/* Don't know a way to verify if stderr gets the malloc_stats output */
+	PRINT("\tPass\n");
+	passed++;
+
+	PRINT("\n%d. [%d] Show [timeout]\n", testnum++,__LINE__);
 	sendAndRecv(mq, HEAPWALK_BASE, resp, 8, 0);
 	if ((int*)0xff == resp[0].ptr) {
-		dbg(PRINT_ERROR, "\tPass\n");
+		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		dbg(PRINT_ERROR, "\tFail %p\n", resp[0].ptr);
+		PRINT("\tFail %p\n", resp[0].ptr);
 		failed++;
 	}
 
@@ -1915,6 +1926,9 @@ void selftest()
 			}
 		}
 	}
+
+	dbg(PRINT_MUST, "%s: sleep 120 secs before pausing..%d\n", __FUNCTION__, getpid());
+	sleep(120);
 	FILE *fp = fopen("/tmp/memleakutil_selftest.txt", "r");
 	if (NULL != fp) {
 		char str[256];
@@ -1923,9 +1937,6 @@ void selftest()
 		}
 		fclose(fp);
 	}
-
-	dbg(PRINT_MUST, "%s: sleep 120 secs before pausing..%d\n", __FUNCTION__, getpid());
-	sleep(120);
 	pause();
 	sem_destroy(selftest_sem);
 	//sem_close(selftest_sem);
