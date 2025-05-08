@@ -170,6 +170,10 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 			}else {
 				dbg(PRINT_MUST, "%s:%d: mq_timedreceive failed [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
 			}
+			if (fpHWFull == fpCurrent) {
+				fclose(fpHWFull);
+			}
+			fclose(fpHWalk);
 			return 1;
 		}
 		else if (msgsize)
@@ -480,7 +484,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 			tmpprn = tmpprn->next;
 		}
 		removeAnonEntries();
-		PRINT("TOTAL HEAP vs Anon percentage: %f\n\n", anonRSSTotal?((double)heapTotal / ((double)anonRSSTotal * 1024))*100:0); 
+		PRINT("TOTAL HEAP (%lu KB) vs Anon percentage: %f\n\n", heapTotal/1024, anonRSSTotal?((double)heapTotal / ((double)anonRSSTotal * 1024))*100:0); 
 	}
 	else
 	{
@@ -516,7 +520,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 						{
 							if (!isSelfTest && (NULL == mmapIn))
 							{
-								dbg(PRINT_WALK, "%s\n", (HEAPWALK_FULL == cmd) ? "Already walked:" : "New Allocations:");
+								dbg(PRINT_WALK, "\n%s\n", (HEAPWALK_FULL == cmd) ? "Already walked:" : "New Allocations:");
 								dbg(PRINT_WALK, "SNo Pointer Size RA ThreadID AllocationTime\n");
 							}
 						}
@@ -613,13 +617,17 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 			{
 				if (tid && threadAllocationOnly)
 				{
-					PRINT("HeapSize for walked thread(%d): %llu Bytes\n", tid, threadAllocationOnly);
+					PRINT("HeapSize for walked thread(%d): %llu Bytes\n\n", tid, threadAllocationOnly);
 				}
 				if (prnThreadStatCmd == cmd)
 				{   
 					printThreadStat();
 					PRINT("TotalHeapSize: %lu\nTool Overhead: %lu\n\n", msgresp.totalHeapSize, msgresp.totalOverhead);
 				}
+				else {
+					PRINT("\n");
+				}
+				sleep(3);
 				// dbg(PRINT_MUST, "Received Msgs %u sequence %u\n", totalMsgs, msgSeq);
 			}
 			else
@@ -627,6 +635,10 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 				if (!isSelfTest && (NULL == mmapIn))
 				{
 					dbg(PRINT_MUST, "%s\n", (HEAPWALK_FULL == cmd) ? "Already walked: None" : "No New Allocations");
+					if (HEAPWALK_INCREMENT == cmd) {
+						PRINT("\n");
+						sleep(3);
+					}
 				}
 			}
 			fclose(fpHWalk);

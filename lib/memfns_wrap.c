@@ -715,6 +715,13 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 #ifdef MAINTAIN_SINGLE_LIST
 				if (tmp == hpwmemhead)
 				{
+					dbg(PRINT_NOISE, "%s: Breaking for processing new allocation\n", __FUNCTION__);
+					/* In case where there was no previous walk, then send full walk as empty and
+					 * then proceed with to be walked send */
+					if (hpwmemhead == hpfmemhead) {
+						msgresp.numItemOrInfo = HEAPWALK_EMPTY;
+						mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+					}
 					break;
 				}
 #endif
@@ -743,7 +750,7 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 #endif
 					}
 					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
-					msgresp.numItemOrInfo = 0;
+					msgresp.numItemOrInfo = HEAPWALK_EMPTY;
 				}
 				tmp = tmp->next;
 			}
@@ -800,6 +807,7 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 					msgresp.totalOverhead = totalOverhead;
 #endif
 				}
+				dbg(PRINT_NOISE, "%s: Sending %d items\n", __FUNCTION__, msgresp.numItemOrInfo);
 				mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 				msgresp.numItemOrInfo = 0;
 			}
@@ -808,6 +816,7 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 		}
 		if (msgresp.numItemOrInfo)
 		{
+			dbg(PRINT_NOISE, "%s: Sending final set of %d items\n", __FUNCTION__, msgresp.numItemOrInfo);
 			msgresp.numItemOrInfo |= HEAPWALK_ENDOF_LIST;
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
 			msgresp.totalHeapSize = totalHeapSize;
