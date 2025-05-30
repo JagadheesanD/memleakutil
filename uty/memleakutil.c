@@ -35,36 +35,83 @@ mqd_t createMq()
 	mqd_t mqrecv;
 	struct mq_attr mqattr = ((struct mq_attr){0, QUEUE_MAXMSG, sizeof(msg_resp), 0, {0}});
 
+	char procread_max[32];
+	FILE *fp = fopen("/proc/sys/fs/mqueue/msgsize_max", "r");
+	if (fp)
+	{
+		if (fgets(procread_max, sizeof(procread_max) - 1, fp) != NULL)
+		{
+			if (sizeof(msg_resp) > atoi(procread_max)) {
+#ifdef OPTIMIZE_MQ_TRANSFER 
+				dbg(PRINT_FATAL, "\nReduce msg_resp size (currently %lu) by reducing MAX_MSG_XFER\n", sizeof(msg_resp));
+#else
+				dbg(PRINT_FATAL, "\nReduce msg_resp size (currently %lu) by reducing MQ_MSG_SIZE\n", sizeof(msg_resp));
+#endif
+				fclose(fp);
+				exit(1);
+			}
+		}
+		fclose(fp);
+	}
 	mqrecv = mq_open("/mq_util", O_CREAT | O_RDONLY, QUEUE_PERMISSION, &mqattr);
+	/* For testing!! */
+	/*if (-1 < mqrecv) {
+		PRINT("%s: Simulating EINVAL(%d), [%s] for mq_open\n", __FUNCTION__, EINVAL, strerror(EINVAL));
+		mq_close(mqrecv);
+		mqrecv = -1;
+		errno = EINVAL;
+	}*/
 	if (0 > mqrecv)
 	{
 		/* EINVAL - With O_CREAT and setting mqattr->mq_maxmsg, mqattr->mq_msqsize with
 		 * 	    QUEUE_MAXMSG (256) and sizeof(msg_resp) (4824 - when OPTIMIZE_MQ_TRANSFER is defined)
 		 *          this error is reported. In that case, we try opening with /proc/sys/fs/mqueue/msg_max 
-		 *          value present. If still reporting error, then /proc/sys/fs/mqueue/msgsize_max needs
-		 *          to be considered, and change MAX_MSG_XFER in inc/memfnswrap.h such that msg_resp size
-		 *          is lower than /proc/sys/fs/mqueue/msgsize_max
+		 *          value present. If still reporting error, then try with /proc/sys/fs/mqueue/msg_default.
 		 *
 		 * EMFILE - In some platforms, even for the above error, this errno is reported. 
-		 *          Instead of reading /proc/pid/limits or get/set via getrlimit/setrlimit, we try 
-		 *          manipulating QUEUE_MAXMSG 
 		 */
 
 		if ((EINVAL == errno) || (EMFILE == errno))
 		{
-			dbg(PRINT_MUST, "Error, cannot open the queue /mq_util [%s]...Trying with default mq_maxmsg size\n", strerror(errno));
-			FILE *fp;
+			dbg(PRINT_MUST, "Error, cannot open the queue /mq_util [%s]...Trying with msg_max size\n", strerror(errno));
 			fp = fopen("/proc/sys/fs/mqueue/msg_max", "r");
 			if (fp)
 			{
-				char msq_max[32];
-				if (fgets(msq_max, sizeof(msq_max) - 1, fp) != NULL)
+				if (fgets(procread_max, sizeof(procread_max) - 1, fp) != NULL)
 				{
-					mqattr.mq_maxmsg = atoi(msq_max);
-					dbg(PRINT_MUST, "Default mq_maxmsg limit is %ld\n", mqattr.mq_maxmsg);
+					mqattr.mq_maxmsg = atoi(procread_max);
+					dbg(PRINT_MUST, "/proc/sys/fs/mqueue/msg_max limit is %ld\n", mqattr.mq_maxmsg);
 					mqrecv = mq_open("/mq_util", O_CREAT | O_RDONLY, QUEUE_PERMISSION, &mqattr);
+
+					/* For testing!! */
+					/*if (-1 < mqrecv) {
+						PRINT("%s: Simulating EINVAL(%d), [%s] for mq_open\n", __FUNCTION__, EINVAL, strerror(EINVAL));
+						mq_close(mqrecv);
+						mqrecv = -1;
+						errno = EINVAL;
+					}*/
+					if (0 > mqrecv) {
+						if ((EINVAL == errno) || (EMFILE == errno))
+						{
+							dbg(PRINT_MUST, "Error, cannot open the queue /mq_util [%s]...Trying with msg_default size\n", strerror(errno));
+							fclose(fp);
+							fp = fopen("/proc/sys/fs/mqueue/msg_default", "r");
+							if (fp)
+							{
+								if (fgets(procread_max, sizeof(procread_max) - 1, fp) != NULL)
+								{
+									mqattr.mq_maxmsg = atoi(procread_max);
+									dbg(PRINT_MUST, "/proc/sys/fs/mqueue/msg_default limit is %ld\n", mqattr.mq_maxmsg);
+									mqrecv = mq_open("/mq_util", O_CREAT | O_RDONLY, QUEUE_PERMISSION, &mqattr);
+								}
+							}
+						}
+
+					}
 				}
-				fclose(fp);
+				if (fp) {
+					fclose(fp);
+				}
 			}
 		}
 	}
@@ -72,23 +119,6 @@ mqd_t createMq()
 	if (0 > mqrecv)
 	{
 		dbg(PRINT_FATAL, "Error, cannot open the queue: /mq_util [%s].\n", strerror(errno));
-		if ((EINVAL == errno) || (EMFILE == errno))
-		{
-			FILE *fp;
-			fp = fopen("/proc/sys/fs/mqueue/msgsize_max", "r");
-			if (fp)
-			{
-				char msgsize_max[32];
-				if (fgets(msgsize_max, sizeof(msgsize_max) - 1, fp) != NULL)
-				{
-					int maxmsgsize_max = atoi(msgsize_max);
-					if (sizeof(msg_resp) > maxmsgsize_max) {
-						dbg(PRINT_FATAL, "Try reducing msg_resp by changing MAX_MSG_XFER (with OPTIMIZE_MQ_TRANSFER)\n or MQ_MSG_SIZE and try again\n");
-					}
-				}
-				fclose(fp);
-			}
-		}
 		exit(1);
 	}
 
@@ -391,44 +421,76 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 			{
 				dbg(PRINT_MUST, "Couldn't read storedtime\n");
 			}
+			int swapEnabledStatus = 0;
 			while (fgets(mmapTmpArray, 127, fpMmap))
 			{
-				// Example: 0000aaaada1f6000      44      32      32 rw---   [ anon ]
-				MMAP_anon tmp = {0};
-				int sscanned = sscanf(mmapTmpArray, "%lx      %u      %u      %u %s   [ %s ]",
-									  &tmp.startAddress, &tmp.size, &tmp.rss, &tmp.dirty, tmp.perm, tmp.entryName);
-				if ((6 == sscanned) && ('\0' != tmp.entryName[0]) && (!strcmp(tmp.entryName, "anon")))
-				{
-					// PRINT("%s: %lx %u %u %s\n", tmp.entryName, tmp.startAddress, tmp.size, tmp.rss, tmp.perm);
-					addAnonEntry(tmp);
-				}
+				/* If Swap enabled:
+				 * Address                Kbytes     PSS   Dirty    Swap  Mode  Mapping
+				 * 00000000005e8000   21716   17292   17292       0  rw-p  [heap]
+				 * 000000006d77f000       4       0       0       0  ---p    [ anon ]
+				 *
+				 * no swap!!
+				 * 0000aaaada1f6000      44      32      32 rw---   [ anon ] 
+				 * */
+				if (!swapEnabledStatus && !strncmp(&mmapTmpArray[0], "Address", 7)) {
+                                        if (strstr(mmapTmpArray, "Swap")) {
+                                                swapEnabledStatus = 2;
+                                        }else {
+                                                swapEnabledStatus = 1;
+                                        }
+					continue;
+                                }
+                                MMAP_anon tmp = {0};
+                                int sscanned;
+                                if (2 > swapEnabledStatus) {
+                                        sscanned = sscanf(mmapTmpArray, "%lx      %u      %u      %u %s   [ %s ]",
+                                                        &tmp.startAddress, &tmp.size, &tmp.rss, &tmp.dirty, tmp.perm, tmp.entryName);
+                                }else {
+                                        unsigned swap;
+                                        sscanned = sscanf(mmapTmpArray, "%lx      %u      %u      %u       %u  %s   [ %s ]",
+                                                        &tmp.startAddress, &tmp.size, &tmp.rss, &tmp.dirty, &swap, tmp.perm, tmp.entryName);
+                                }
+                                if ((6 <= sscanned) && ('\0' != tmp.entryName[0]) && 
+						(!strcmp(tmp.entryName, "anon") || !strncmp(tmp.entryName, "heap", 4)))
+                                {
+					tmp.entryName[4] = '\0';
+                                        // PRINT("%s: %lx %u %u %s\n", tmp.entryName, tmp.startAddress, tmp.size, tmp.rss, tmp.perm);
+                                        addAnonEntry(tmp);
+                                }
 			}
 			fclose(fpMmap);
-			mmapIn = mmapAnon;
-			MMAP_anon *tmpprn = mmapAnon;
-			while (tmpprn)
-			{
-				// PRINT("%s: %lx %u %u %s\n", tmpprn->entryName, tmpprn->startAddress, tmpprn->size, tmpprn->rss, tmpprn->perm);
-				tmpprn->endAddress = tmpprn->startAddress + (tmpprn->size * 1024);
-				/* Fill it's heatmap start/end */
-				unsigned long long increment = (tmpprn->size * 1024) / MAX_HEAT_MAP;
-				unsigned long long startAddress = tmpprn->startAddress;
-				for (int i = 0; i < MAX_HEAT_MAP; i++)
-				{
-					tmpprn->heatmap[i].startAddress = startAddress;
-					startAddress += increment;
-					tmpprn->heatmap[i].endAddress = startAddress;
-					// PRINT("0x%lx:0x%lx %llu\n", tmpprn->heatmap[i].startAddress, tmpprn->heatmap[i].endAddress, increment);
-				}
-				if (tmpprn->endAddress != tmpprn->heatmap[MAX_HEAT_MAP - 1].endAddress)
-				{
-					dbg(PRINT_ERROR, "Something went wrong in heatmap distribution??0x%lx:0x%lx\n",
-						tmpprn->endAddress, tmpprn->heatmap[MAX_HEAT_MAP - 1].endAddress);
-				}
-				tmpprn = tmpprn->next;
-			}
-			MMAP_anon tmp = {0, ULONG_MAX, 0, 0, 0, 0, "", "***", {{0}}, NULL, NULL};
-			addAnonEntry(tmp);
+                        //MMAP_anon tmp = {0, ULONG_MAX, 0, 0, 0, 0, "", "***", {{0}}, NULL, NULL};
+                        if (NULL == mmapAnon) {
+                                /* Looks like pmap entries couldn't be processed!! */
+                                PRINT("%s: heap/anon entries couldn't be read from map\n", __FUNCTION__);
+				return; // No point in continuing
+                        }
+                        else {
+                                MMAP_anon *tmpprn = mmapAnon;
+                                while (tmpprn)
+                                {
+                                        // PRINT("%s: %lx %u %u %s\n", tmpprn->entryName, tmpprn->startAddress, tmpprn->size, tmpprn->rss, tmpprn->perm);
+                                        tmpprn->endAddress = tmpprn->startAddress + (tmpprn->size * 1024);
+                                        /* Fill it's heatmap start/end */
+                                        unsigned long long increment = (tmpprn->size * 1024) / MAX_HEAT_MAP;
+                                        unsigned long long startAddress = tmpprn->startAddress;
+                                        for (int i = 0; i < MAX_HEAT_MAP; i++)
+                                        {
+                                                tmpprn->heatmap[i].startAddress = startAddress;
+                                                startAddress += increment;
+                                                tmpprn->heatmap[i].endAddress = startAddress;
+                                                // PRINT("0x%lx:0x%lx %llu\n", tmpprn->heatmap[i].startAddress, tmpprn->heatmap[i].endAddress, increment);
+                                        }
+                                        if (tmpprn->endAddress != tmpprn->heatmap[MAX_HEAT_MAP - 1].endAddress)
+                                        {
+                                                dbg(PRINT_ERROR, "Something went wrong in heatmap distribution??0x%lx:0x%lx\n",
+                                                        tmpprn->endAddress, tmpprn->heatmap[MAX_HEAT_MAP - 1].endAddress);
+                                        }
+                                        tmpprn = tmpprn->next;
+                                }
+                        }
+                        //addAnonEntry(tmp);
+                        mmapIn = mmapAnon;
 		}
 		/* Recursive call to complete HeapWalkAll processing */
 		processHeapwalk(HEAPWALK_FULL, pid, tid, isSelfTest, resp, listIndex, mmapIn);
@@ -753,23 +815,30 @@ int main(int argc, char *argv[])
 			scanf("%d", &msgcmd.cmd);
 
 			msgcmd.cmd |= HEAPWALK_BASE;
+#ifdef OPTIMIZE_MQ_TRANSFER
 			prnThreadStatCmd = 0;
+#endif
 
 			switch (msgcmd.cmd)
 			{
 			case HEAPWALK_MMAP_ENTRIES:
-				prnThreadStatCmd = HEAPWALK_BASE;
 #ifndef OPTIMIZE_MQ_TRANSFER
 				PRINT("Cmd supported only with OPTIMIZE_MQ_TRANSFER, continuing..\n");
 				break;
+#else
+				prnThreadStatCmd = HEAPWALK_BASE;
 #endif
 			case HEAPWALK_INCREMENT:
+#ifdef OPTIMIZE_MQ_TRANSFER
 				prnThreadStatCmd = HEAPWALK_INCREMENT;
+#endif
 			case HEAPWALK_FULL:
 			{
+#ifdef OPTIMIZE_MQ_TRANSFER
 				if (!prnThreadStatCmd) {
 					prnThreadStatCmd = HEAPWALK_FULL;
 				}
+#endif
 				int threadid = 0;
 				if (HEAPWALK_MMAP_ENTRIES != msgcmd.cmd)
 				{
