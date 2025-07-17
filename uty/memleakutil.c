@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <string.h>
 #include <limits.h> /* For ULONG_MAX */
+#include <dirent.h>
 
 #include "memfns_wrap.h"
 
@@ -21,6 +22,8 @@ extern void spawntestrunthread();
 #endif
 
 static const char versionString[] = "" MEMWRAP_MAJOR_VERSION "." MEMWRAP_MINOR_VERSION "";
+char *outPath;
+char *offlinePidSuffix;
 
 /**
  * @brief Creates a message queue for receiving messages.
@@ -160,11 +163,16 @@ mqd_t createMq()
 int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 {
 	msg_resp msgresp;
+#ifdef SELF_TEST1
+	unsigned index = 0;
+	int stcmd = cmd;
+#endif
 	unsigned int prio;
 	struct timespec tm;
 	int msgsize = sizeof(msg_resp);
 	char heapwalkFile[32];
-	sprintf(heapwalkFile, "/tmp/hp_%d.dat", pid);
+#ifndef SELF_TEST1
+	sprintf(heapwalkFile, "%s/hp_%d.dat", outPath, pid);
 	FILE *fpHWalk = fopen(heapwalkFile, "wb");
 	if (NULL == fpHWalk)
 	{
@@ -175,7 +183,7 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 	FILE *fpHWFull;
 	if ((HEAPWALK_FULL == cmd) || (HEAPWALK_MMAP_ENTRIES == cmd))
 	{
-		sprintf(heapwalkFile, "/tmp/hpf_%d.dat", pid);
+		sprintf(heapwalkFile, "%s/hpf_%d.dat", outPath, pid);
 		fpHWFull = fopen(heapwalkFile, "wb");
 		if (NULL == fpHWFull)
 		{
@@ -189,6 +197,7 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 	{
 		fpHWFull = NULL;
 	}
+#endif
 	while (0 != msgsize)
 	{
 		clock_gettime(CLOCK_REALTIME, &tm);
@@ -200,10 +209,12 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 			}else {
 				dbg(PRINT_MUST, "%s:%d: mq_timedreceive failed [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
 			}
+#ifndef SELF_TEST1
 			if (fpHWFull == fpCurrent) {
 				fclose(fpHWFull);
 			}
 			fclose(fpHWalk);
+#endif
 			return 1;
 		}
 		else if (msgsize)
@@ -211,15 +222,20 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 			unsigned int info = msgresp.numItemOrInfo & 0x30000000;
 			if (info)
 			{
+#ifndef SELF_TEST1
 				if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpCurrent))
 				{
 					dbg(PRINT_MUST, "%s: Error storing %s\n", __FUNCTION__, strerror(errno));
 				}
+#else
+				memcpy(&stmsgresp[index++], &msgresp, sizeof(msg_resp));
+#endif
 				if (HEAPWALK_ITEM_CONTN == info)
 				{
 					continue;
 				}
 			}
+#ifndef SELF_TEST1
 			if (fpHWFull == fpCurrent)
 			{
 				if (!isSelfTest)
@@ -238,6 +254,40 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 				fclose(fpHWalk);
 				break;
 			}
+#else
+			if (HEAPWALK_INCREMENT != stcmd) { 
+					//|| (HEAPWALK_MMAP_ENTRIES == cmd))
+					//TODO ...check Jaga, where is suffix
+				sprintf(heapwalkFile, "%s/hpf_%d.dat", outPath, pid);
+				FILE *fpHWFull = fopen(heapwalkFile, "wb");
+				if (NULL == fpHWFull) {
+					dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
+					return 1;
+				}
+				if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWFull))
+				{
+					dbg(PRINT_MUST, "%s: Error storing %s\n", __FUNCTION__, strerror(errno));
+				}
+				fclose(fpHWFull);
+				memset(&msgresp, 0, sizeof(msgresp));
+				index = 0;
+				stcmd = HEAPWALK_INCREMENT;
+			}	
+			else {
+				sprintf(heapwalkFile, "%s/hp_%d.dat", outPath, pid);
+				FILE *fpHWFull = fopen(heapwalkFile, "wb");
+				if (NULL == fpHWFull) {
+					dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
+					return 1;
+				}
+				if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWFull))
+				{
+					dbg(PRINT_MUST, "%s: Error storing %s\n", __FUNCTION__, strerror(errno));
+				}
+				fclose(fpHWFull);
+				break;
+			}			
+#endif
 		}
 	}
 	return 0;
@@ -314,7 +364,7 @@ typedef struct threadstat
 	struct threadstat *next;
 } threadStat;
 threadStat *threadStatHead;
-int prnThreadStatCmd;
+int prnThreadStatCmd; /* Holds for which cmd to display total heap stats */
 
 /**
  * @brief Adds a thread statistics entry.
@@ -388,6 +438,209 @@ void printThreadStat()
 	PRINT("\n");
 }
 
+/* During offline analysis, read from outPath, and populate anon when cmd is 3 */
+int readStoredSmaps(unsigned pid, bool createAnon)
+{
+	char mmapTmpArray[1024]; /* Used to read entries from /proc/pid/smaps...big enough to hold large entries */
+	FILE *fpMmap;
+	
+	sprintf(mmapTmpArray, "%s/smaps_%d%s.txt", outPath, pid, offlinePidSuffix?offlinePidSuffix:"");
+	fpMmap = fopen(mmapTmpArray, "r");
+
+	if (NULL != fpMmap) {
+		dbg(PRINT_MUST, "smaps file available, %s\n", mmapTmpArray);
+		//time_t timenow = time(NULL);
+		//struct tm *tmNow = localtime(&timenow);
+		//if (0 == strftime(mmapTmpArray, sizeof(mmapTmpArray), "YYYY_MM_DD HH_MM_SS %Y_%m_%d %H_%M_%S", tmNow)) {
+			// Shouldn't fail unless mmapTmpArray is not big enough to hold
+		//	sprintf(mmapTmpArray, "Date in epoch: %lu secs", timenow); // see if this is warned in 32 bit systems..
+		//}
+		MMAP_anon tmp = {0};
+		while (fgets(mmapTmpArray, 1024, fpMmap)) {
+
+			if (5 <= sscanf(mmapTmpArray, "%lx-%lx %u %u %s %s", &tmp.startAddress, &tmp.endAddress, &tmp.size, &tmp.rss, tmp.perm, tmp.entryName)) {
+				dbg(PRINT_INFO, "Read %lx-%lx %u %u %s %s from %s", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName, mmapTmpArray);
+				if (createAnon && (('\0' == tmp.entryName[0]) || (strstr(tmp.entryName, "heap")))) {
+					if ('\0' == tmp.entryName[0]) {
+						strcpy(tmp.entryName, "[anon]");
+					}
+					addAnonEntry(tmp);
+				}
+				memset(&tmp, 0, sizeof(MMAP_anon));
+			}
+		}
+		fclose(fpMmap);
+	}
+	else {
+		PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
+	}
+	return 1;
+}
+/*
+ * During normal menu, read from /proc, store and populate anon when cmd is 3 -- !analyze 
+ * During normal cmd 1 or 2, read from /proc and store
+ */
+int readAndStoreSmaps(unsigned pid, bool createAnon)
+{
+	char mmapTmpArray[1024]; /* Used to read entries from /proc/pid/smaps...big enough to hold large entries */
+	FILE *fpMmap;
+	/* For validation only */
+	//sprintf(mmapTmpArray, "cat /proc/%d/smaps > %s/test_smaps_%d.txt", pid, outPath, pid);
+	//system(mmapTmpArray);
+	sprintf(mmapTmpArray, "%s/smaps_%d.txt", outPath, pid);
+	fpMmap = fopen(mmapTmpArray, "w");
+
+	if (NULL != fpMmap) {
+		static unsigned skipToEntry = 0, skipToSize = 0, skipToRss = 0, skipToRollover = 0; 
+		unsigned skippedToLearn = 0;
+
+		time_t timenow = time(NULL);
+		struct tm *tmNow = localtime(&timenow);
+		if (0 == strftime(mmapTmpArray, sizeof(mmapTmpArray), "YYYY_MM_DD HH_MM_SS %Y_%m_%d %H_%M_%S", tmNow)) {
+			// Shouldn't fail unless mmapTmpArray is not big enough to hold
+			sprintf(mmapTmpArray, "Date_in_epoch: %lu secs", timenow); // see if this is warned in 32 bit systems..
+		}
+		fprintf(fpMmap, "%s\n", mmapTmpArray);
+		sprintf(mmapTmpArray, "/proc/%u/smaps", pid);
+		FILE *smap = fopen(mmapTmpArray, "r");
+		if (smap) {
+			unsigned lines_To_skip = skipToEntry;
+			unsigned skipped = 1; // Tracks current skips
+			unsigned expect_entry = 1, expect_size = 0, expect_rss = 0;
+
+			MMAP_anon tmp = {0};
+			while (fgets(mmapTmpArray, 1024, smap)) {
+				if (skipToRollover) { // Learnt the format
+					if (++skipped > lines_To_skip) {
+						if (expect_entry) {
+							/* aaaad3ff0000-aaaad4139000 r-xp 00000000 b3:02 2368                       /usr/bin/bash */
+							if (3 <= sscanf(mmapTmpArray, "%lx-%lx %s %*x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, tmp.entryName)) {
+								dbg(PRINT_NOISE,"Read Entry %s %lx-%lx %s", mmapTmpArray, tmp.startAddress, tmp.endAddress, tmp.entryName);
+								lines_To_skip = skipToSize;
+								skipped = 1;
+								expect_size = 1;
+								expect_entry = 0;
+							}
+							else {
+								dbg(PRINT_ERROR,"Error Reading Entry from %s", mmapTmpArray);
+							}
+						} 
+						else if (expect_size) {
+							if (sscanf(mmapTmpArray, "Size: %u kB", &tmp.size)) {
+								dbg(PRINT_NOISE,"Read Entry %s %u", mmapTmpArray, tmp.size);
+								lines_To_skip = skipToRss;
+								skipped = 1;
+								expect_rss = 1;
+								expect_size = 0;
+							}
+							else {
+								dbg(PRINT_ERROR,"Error Reading Size from %s", mmapTmpArray);
+							}
+						} 
+						else if (expect_rss) {
+							if (sscanf(mmapTmpArray, "Rss: %u kB", &tmp.rss)) {
+								dbg(PRINT_NOISE,"Read Entry %s %u", mmapTmpArray, tmp.rss);
+								if (createAnon && (('\0' == tmp.entryName[0]) || (strstr(tmp.entryName, "heap")))) {
+									if ('\0' == tmp.entryName[0]) {
+										strcpy(tmp.entryName, "[anon]");
+									}
+									addAnonEntry(tmp);
+								}
+								lines_To_skip = skipToRollover;
+								skipped = 1;
+								expect_entry = 1;
+								expect_rss = 0;
+								fprintf(fpMmap, "%lx-%lx %u %u %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
+								memset(&tmp, 0, sizeof(MMAP_anon));
+							}
+							else {
+								dbg(PRINT_ERROR,"Error Reading Rss from %s", mmapTmpArray);
+							}
+						} 
+					}
+					else {
+						dbg(PRINT_INFO, "Skipping, skipped vs lines_To_skip %u:%u, line %s", skipped, lines_To_skip, mmapTmpArray);
+					}
+				}
+				else { // Learn here
+					if (!skipToEntry) {
+						if (3 <= sscanf(mmapTmpArray, "%lx-%lx %s %*x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, tmp.entryName)) {
+							tmp.size = tmp.endAddress - tmp.startAddress;
+							skipToEntry = skippedToLearn + 1;
+							skippedToLearn = 0;
+							dbg(PRINT_NOISE,"Read Entry %lx-%lx %s %s after skipping %u lines - %s", 
+									tmp.startAddress, tmp.endAddress, tmp.entryName, tmp.perm, skipToEntry, mmapTmpArray);
+						}
+						else {
+							skippedToLearn++;
+							dbg(PRINT_INFO, "skippedForEntry: %u, %s\n", skippedToLearn, mmapTmpArray);
+						}
+					}
+					else if (!skipToSize) {
+						if (sscanf(mmapTmpArray, "Size: %u kB", &tmp.size)) {
+							skipToSize = skippedToLearn + 1;
+							skippedToLearn = 0;
+							dbg(PRINT_NOISE,"Read Size %u after skipping %u lines - %s", tmp.size, skipToSize, mmapTmpArray);
+						}
+						else {
+							skippedToLearn++;
+							dbg(PRINT_INFO, "skippedForSize: %u, %s\n", skippedToLearn, mmapTmpArray);
+						}
+					}
+					else if (!skipToRss) {
+						if (sscanf(mmapTmpArray, "Rss: %u kB", &tmp.rss)) {
+							if (createAnon && ((strstr(tmp.entryName, "heap")) || ('\0' == tmp.entryName[0]))) {
+								if ('\0' == tmp.entryName[0]) { /* May not happen here.. */
+									strcpy(tmp.entryName, "[anon]");
+								}
+								addAnonEntry(tmp);
+							}
+							skipToRss = skippedToLearn + 1;
+							skippedToLearn = 0;
+							dbg(PRINT_NOISE,"Read Rss %u after skipping %u - %s", tmp.rss, skipToRss, mmapTmpArray);
+							fprintf(fpMmap, "%lx-%lx %u %u %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
+							memset(&tmp, 0, sizeof(MMAP_anon));
+						}
+						else {
+							skippedToLearn++;
+							dbg(PRINT_INFO, "skippedForRss: %u, %s\n", skippedToLearn, mmapTmpArray);
+						}
+					}
+					else if (!skipToRollover) {
+                                                if (3 <= sscanf(mmapTmpArray, "%lx-%lx %s %*x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, tmp.entryName)) {
+                                                        tmp.size = tmp.endAddress - tmp.startAddress;
+                                                        skipToRollover = skippedToLearn + 1;
+							skippedToLearn = 0;
+                                                        dbg(PRINT_NOISE, "Read Rollover %lx-%lx %s %s after skipping %u - %s", 
+									tmp.startAddress, tmp.endAddress, tmp.entryName, tmp.perm, skipToRollover, mmapTmpArray);
+							expect_size = 1;
+							expect_entry = 0;
+                                                }
+                                                else {
+                                                        skippedToLearn++;
+							dbg(PRINT_INFO, "skippedForRollover: %u, %s\n", skippedToLearn, mmapTmpArray);
+                                                }
+                                        }
+					else {
+						PRINT("%s:%d: Shouldn't get here..read line %s\n", __FUNCTION__, __LINE__, mmapTmpArray);
+					}
+				}
+			}
+			fclose(smap);
+		}
+		else {
+			PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
+			return 1;
+		}
+		fclose(fpMmap);
+	}
+	else {
+		PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
+		return 1;
+	}
+	return 0;
+}
+
 /**
  * @brief Processes heapwalk data.
  *
@@ -401,7 +654,7 @@ void printThreadStat()
  * @param listIndex Pointer to the list index.
  * @param mmapIn Pointer to the input memory mapping.
  */
-void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int *listIndex, MMAP_anon *mmapIn)
+void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int *listIndex, MMAP_anon *mmapIn, bool analyze)
 {
 	msg_resp msgresp;
 	int msgsize = sizeof(msg_resp);
@@ -409,91 +662,47 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 
 	if (HEAPWALK_MMAP_ENTRIES == cmd)
 	{
-		char mmapTmpArray[128];
-		sprintf(mmapTmpArray, "date > /tmp/pmap_%d.txt; pmap -x %d >> /tmp/pmap_%d.txt", pid, pid, pid);
-		system(mmapTmpArray); // Replace with popen.. TODO
-		sprintf(mmapTmpArray, "/tmp/pmap_%d.txt", pid);
-		FILE *fpMmap = fopen(mmapTmpArray, "r");
-		if (NULL != fpMmap)
-		{
-			storedTime[0] = '\0';
-			if (NULL == fgets(storedTime, 31, fpMmap))
-			{
-				dbg(PRINT_MUST, "Couldn't read storedtime\n");
+		if (!isSelfTest) {
+			if (!analyze) {
+				readAndStoreSmaps(pid, 1);
 			}
-			int swapEnabledStatus = 0;
-			while (fgets(mmapTmpArray, 127, fpMmap))
-			{
-				/* If Swap enabled:
-				 * Address                Kbytes     PSS   Dirty    Swap  Mode  Mapping
-				 * 00000000005e8000   21716   17292   17292       0  rw-p  [heap]
-				 * 000000006d77f000       4       0       0       0  ---p    [ anon ]
-				 *
-				 * no swap!!
-				 * 0000aaaada1f6000      44      32      32 rw---   [ anon ] 
-				 * */
-				if (!swapEnabledStatus && !strncmp(&mmapTmpArray[0], "Address", 7)) {
-                                        if (strstr(mmapTmpArray, "Swap")) {
-                                                swapEnabledStatus = 2;
-                                        }else {
-                                                swapEnabledStatus = 1;
-                                        }
-					continue;
-                                }
-                                MMAP_anon tmp = {0};
-                                int sscanned;
-                                if (2 > swapEnabledStatus) {
-                                        sscanned = sscanf(mmapTmpArray, "%lx      %u      %u      %u %s   [ %s ]",
-                                                        &tmp.startAddress, &tmp.size, &tmp.rss, &tmp.dirty, tmp.perm, tmp.entryName);
-                                }else {
-                                        unsigned swap;
-                                        sscanned = sscanf(mmapTmpArray, "%lx      %u      %u      %u       %u  %s   [ %s ]",
-                                                        &tmp.startAddress, &tmp.size, &tmp.rss, &tmp.dirty, &swap, tmp.perm, tmp.entryName);
-                                }
-                                if ((6 <= sscanned) && ('\0' != tmp.entryName[0]) && 
-						(!strcmp(tmp.entryName, "anon") || !strncmp(tmp.entryName, "heap", 4)))
-                                {
-					tmp.entryName[4] = '\0';
-                                        // PRINT("%s: %lx %u %u %s\n", tmp.entryName, tmp.startAddress, tmp.size, tmp.rss, tmp.perm);
-                                        addAnonEntry(tmp);
-                                }
+			else {
+				readStoredSmaps(pid, 1);
 			}
-			fclose(fpMmap);
-                        //MMAP_anon tmp = {0, ULONG_MAX, 0, 0, 0, 0, "", "***", {{0}}, NULL, NULL};
-                        if (NULL == mmapAnon) {
-                                /* Looks like pmap entries couldn't be processed!! */
-                                PRINT("%s: heap/anon entries couldn't be read from map\n", __FUNCTION__);
-				return; // No point in continuing
-                        }
-                        else {
-                                MMAP_anon *tmpprn = mmapAnon;
-                                while (tmpprn)
-                                {
-                                        // PRINT("%s: %lx %u %u %s\n", tmpprn->entryName, tmpprn->startAddress, tmpprn->size, tmpprn->rss, tmpprn->perm);
-                                        tmpprn->endAddress = tmpprn->startAddress + (tmpprn->size * 1024);
-                                        /* Fill it's heatmap start/end */
-                                        unsigned long long increment = (tmpprn->size * 1024) / MAX_HEAT_MAP;
-                                        unsigned long long startAddress = tmpprn->startAddress;
-                                        for (int i = 0; i < MAX_HEAT_MAP; i++)
-                                        {
-                                                tmpprn->heatmap[i].startAddress = startAddress;
-                                                startAddress += increment;
-                                                tmpprn->heatmap[i].endAddress = startAddress;
-                                                // PRINT("0x%lx:0x%lx %llu\n", tmpprn->heatmap[i].startAddress, tmpprn->heatmap[i].endAddress, increment);
-                                        }
-                                        if (tmpprn->endAddress != tmpprn->heatmap[MAX_HEAT_MAP - 1].endAddress)
-                                        {
-                                                dbg(PRINT_ERROR, "Something went wrong in heatmap distribution??0x%lx:0x%lx\n",
-                                                        tmpprn->endAddress, tmpprn->heatmap[MAX_HEAT_MAP - 1].endAddress);
-                                        }
-                                        tmpprn = tmpprn->next;
-                                }
-                        }
-                        //addAnonEntry(tmp);
-                        mmapIn = mmapAnon;
 		}
+
+                if (NULL == mmapAnon) {
+                        /* Looks like pmap entries couldn't be processed!! */
+                        PRINT("%s: heap/anon entries couldn't be read from map\n", __FUNCTION__);
+			return; // No point in continuing
+                }
+                else {
+                        MMAP_anon *tmpprn = mmapAnon;
+                        while (tmpprn)
+                        {
+                                // PRINT("%s: %lx %u %u %s\n", tmpprn->entryName, tmpprn->startAddress, tmpprn->size, tmpprn->rss, tmpprn->perm);
+                                //tmpprn->endAddress = tmpprn->startAddress + (tmpprn->size * 1024);
+                                /* Fill it's heatmap start/end */
+                                unsigned long long increment = (tmpprn->size * 1024) / MAX_HEAT_MAP;
+                                unsigned long long startAddress = tmpprn->startAddress;
+                                for (int i = 0; i < MAX_HEAT_MAP; i++)
+                                {
+                                        tmpprn->heatmap[i].startAddress = startAddress;
+                                        startAddress += increment;
+                                        tmpprn->heatmap[i].endAddress = startAddress;
+                                        // PRINT("0x%lx:0x%lx %llu\n", tmpprn->heatmap[i].startAddress, tmpprn->heatmap[i].endAddress, increment);
+                                }
+                                if (tmpprn->endAddress != tmpprn->heatmap[MAX_HEAT_MAP - 1].endAddress)
+                                {
+                                        dbg(PRINT_ERROR, "Something went wrong in heatmap distribution??0x%lx:0x%lx\n",
+                                                tmpprn->endAddress, tmpprn->heatmap[MAX_HEAT_MAP - 1].endAddress);
+                                }
+                                tmpprn = tmpprn->next;
+                        }
+                }
+                mmapIn = mmapAnon;
 		/* Recursive call to complete HeapWalkAll processing */
-		processHeapwalk(HEAPWALK_FULL, pid, tid, isSelfTest, resp, listIndex, mmapIn);
+		processHeapwalk(HEAPWALK_FULL, pid, tid, isSelfTest, resp, listIndex, mmapIn, analyze);
 		
 		/* Print results */
 		MMAP_anon *tmpprn = mmapAnon;
@@ -503,7 +712,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 		}
 		unsigned long anonRSSTotal = 0, heapTotal = 0;
 
-		PRINT("\tmmapStart-mmapEnd\t\tSize(Kb)\tRSS(Kb)\tHeap'd(Bytes)\tHeap'd(%s)vsRSS\n", "%");
+		PRINT("\tmmapStart-mmapEnd\t\tName(Perm)\tSize(Kb)\tRSS(Kb)\tHeap'd(VM Bytes)\tHeap'd(%s)vsRSS\n", "%");
 		while (tmpprn)
 		{
 			if (tmpprn->rss)
@@ -511,8 +720,8 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 				float percent = ((float)tmpprn->heapEntries / (float)(tmpprn->rss * 1024)) * 100;
 				if (tmpprn->heapEntries)
 				{
-					PRINT("\t%lx-%lx\t%u\t\t%u\t%llu\t\t%.2f\n",
-						  tmpprn->startAddress, tmpprn->endAddress, tmpprn->size, tmpprn->rss,
+					PRINT("\t%lx-%lx\t%s(%s)\t%u\t\t%u\t%llu\t\t%.2f\n",
+						  tmpprn->startAddress, tmpprn->endAddress, tmpprn->entryName, tmpprn->perm, tmpprn->size, tmpprn->rss,
 						  tmpprn->heapEntries, percent);
 					PRINT("\tAllocations in bytes over %u divisions\n\t", MAX_HEAT_MAP);
 					for (int i = 0; i < MAX_HEAT_MAP; i++)
@@ -523,22 +732,22 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 				}
 				else
 				{
-					PRINT("\t%lx-%lx\t%u\t\t%u\n",
-						  tmpprn->startAddress, tmpprn->endAddress, tmpprn->size, tmpprn->rss);
+					PRINT("\t%lx-%lx\t%s(%s)\t%u\t\t%u\n",
+						  tmpprn->startAddress, tmpprn->endAddress, tmpprn->entryName, tmpprn->perm, tmpprn->size, tmpprn->rss);
 				}
 			}
 			else
 			{
 				if (tmpprn->heapEntries)
 				{
-					PRINT("\t%lx-%lx\t%u\t\t%u\t\t%llx\t????\n",
-						  tmpprn->startAddress, tmpprn->endAddress, tmpprn->size, tmpprn->rss,
+					PRINT("\t%lx-%lx\t%s(%s)\t%u\t\t%u\t\t%llx\t????\n",
+						  tmpprn->startAddress, tmpprn->endAddress, tmpprn->entryName, tmpprn->perm, tmpprn->size, tmpprn->rss,
 						  tmpprn->heapEntries);
 				}
 				else if (tmpprn->startAddress)
 				{
-					PRINT("\t%lx-%lx\t%u\t\t%u\n",
-						  tmpprn->startAddress, tmpprn->endAddress, tmpprn->size, tmpprn->rss);
+					PRINT("\t%lx-%lx\t%s(%s)\t%u\t\t%u\n",
+						  tmpprn->startAddress, tmpprn->endAddress, tmpprn->entryName, tmpprn->perm, tmpprn->size, tmpprn->rss);
 				}
 			}
 			anonRSSTotal += tmpprn->rss;
@@ -552,13 +761,24 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 	{
 		if (HEAPWALK_FULL == cmd)
 		{
-			sprintf(heapwalkFile, "/tmp/hpf_%d.dat", pid);
+			if (analyze) {
+				sprintf(heapwalkFile, "%s/hpf_%d%s.dat", outPath, pid, offlinePidSuffix?offlinePidSuffix:"");
+			}
+			else {
+				sprintf(heapwalkFile, "%s/hpf_%d.dat", outPath, pid);
+			}
 		}
 		else
 		{
-			sprintf(heapwalkFile, "/tmp/hp_%d.dat", pid);
+			if (analyze) {
+				sprintf(heapwalkFile, "%s/hp_%d%s.dat", outPath, pid, offlinePidSuffix?offlinePidSuffix:"");
+			}
+			else {
+				sprintf(heapwalkFile, "%s/hp_%d.dat", outPath, pid);
+			}
 		}
 
+		unsigned totalMsgs = 0;
 		FILE *fpHWalk = fopen(heapwalkFile, "rb");
 		if (NULL == fpHWalk)
 		{
@@ -566,9 +786,21 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 		}
 		else
 		{
+			/* to be tested and added later
+			if (analyze) {
+				// check version
+				hp_walk_header hpwHdr = {MEMWRAP_MSG_RESP_VERSION,0};
+
+				if (fread(&hpwHdr, 1, sizeof(hpwHdr), fpHWalk)) {
+					if (MEMWRAP_MSG_RESP_VERSION != hpwHdr.version) {
+						PRINT("Version mismatch, heapwalk file %u vs uty %u\n", hpwHdr.version, MEMWRAP_MSG_RESP_VERSION);
+					}
+					PRINT("%s: Total entries: %lu\n", heapwalkFile, hpwHdr.totalEntries);
+				}
+			}
+			*/
 			unsigned msgSeq = 0;
 			unsigned msgIndex;
-			unsigned totalMsgs = 0;
 			unsigned long long threadAllocationOnly = 0;
 			do
 			{
@@ -602,13 +834,21 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 								{
 									if ((tid) ? tid == msgresp.xfer[msgIndex].tid : 1)
 									{
+										/* Not worrying about thread safe, since I'm the sole user */
+										struct tm *tmNow = localtime(&msgresp.xfer[msgIndex].seconds);
+										char timef[32] = {'\0'};
+										if (0 == strftime(timef, sizeof(timef), "%Y_%m_%d_%H_%M_%S", tmNow)) {
+											/* may not fail..but still */
+											sprintf(timef, "%lu", msgresp.xfer[msgIndex].seconds);
+										}
+
 #ifdef PREPEND_LISTDATA
-										PRINT("%u %p %u %p %u %ld%s\n", ++msgSeq, msgresp.xfer[msgIndex].ptr, msgresp.xfer[msgIndex].size, msgresp.xfer[msgIndex].ra,
-											  msgresp.xfer[msgIndex].tid, msgresp.xfer[msgIndex].seconds,
-											  (msgresp.xfer[msgIndex].flags & 0x1) ? " - R" : "");
+										PRINT("%u %p %u %p %u %s%s\n", ++msgSeq, msgresp.xfer[msgIndex].ptr, msgresp.xfer[msgIndex].size, msgresp.xfer[msgIndex].ra,
+											  msgresp.xfer[msgIndex].tid, timef,
+											  (0 == (msgresp.xfer[msgIndex].flags & 0xFF01)) ? "" : (msgresp.xfer[msgIndex].flags & 0x1) ? (" -Realloc") : (" -Memalign"));
 #else
-										PRINT("%u %p %u %p %u %ld\n", ++msgSeq, msgresp.xfer[msgIndex].ptr, msgresp.xfer[msgIndex].size, msgresp.xfer[msgIndex].ra,
-											  msgresp.xfer[msgIndex].tid, msgresp.xfer[msgIndex].seconds);
+										PRINT("%u %p %u %p %u %s\n", ++msgSeq, msgresp.xfer[msgIndex].ptr, msgresp.xfer[msgIndex].size, msgresp.xfer[msgIndex].ra,
+											  msgresp.xfer[msgIndex].tid, timef);
 #endif
 										threadAllocationOnly += msgresp.xfer[msgIndex].size;
 										addThreadStatEntry(msgresp.xfer[msgIndex].tid, msgresp.xfer[msgIndex].size);
@@ -621,8 +861,8 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 									while (tmpprn)
 									{
 										// PRINT("%s: %lx %u %u %s\n", tmpprn->entryName, tmpprn->startAddress, tmpprn->size, tmpprn->rss, tmpprn->perm);
-										if ((tmpprn->startAddress < (unsigned long)msgresp.xfer[msgIndex].ptr) &&
-											((tmpprn->endAddress) > (unsigned long)msgresp.xfer[msgIndex].ptr))
+										if ((tmpprn->startAddress <= (unsigned long)msgresp.xfer[msgIndex].ptr) &&
+											((tmpprn->endAddress) >= (unsigned long)msgresp.xfer[msgIndex].ptr))
 										{
 											/* Get entry size including the book keeping!! */
 											unsigned size = msgresp.xfer[msgIndex].size + sizeof(LIST);
@@ -631,9 +871,9 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 											int i;
 											for (i = 0; i < MAX_HEAT_MAP; i++)
 											{
-												if ((unsigned long)msgresp.xfer[msgIndex].ptr < tmpprn->heatmap[i].endAddress)
+												if ((unsigned long)msgresp.xfer[msgIndex].ptr <= tmpprn->heatmap[i].endAddress)
 												{
-													if ((unsigned long)((char *)msgresp.xfer[msgIndex].ptr + size) <
+													if ((unsigned long)((char *)msgresp.xfer[msgIndex].ptr + size) <=
 														tmpprn->heatmap[i].endAddress)
 													{
 														tmpprn->heatmap[i].heapEntries += size;
@@ -675,21 +915,23 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 					}
 				}
 			} while (msgsize);
+
 			if (!isSelfTest && totalMsgs && (NULL == mmapIn))
 			{
 				if (tid && threadAllocationOnly)
 				{
 					PRINT("HeapSize for walked thread(%d): %llu Bytes\n\n", tid, threadAllocationOnly);
 				}
-				if (prnThreadStatCmd == cmd)
+				if ((prnThreadStatCmd == cmd)) // || analyze)
 				{   
 					printThreadStat();
-					PRINT("TotalHeapSize: %lu\nTool Overhead: %lu\n\n", msgresp.totalHeapSize, msgresp.totalOverhead);
+					PRINT("\nTotalHeapSize(bytes)    : %lu\n(excludes tool overhead)\nPeakSize(bytes)         : %lu at %sTool Overhead(bytes)    : %lu\n\n", 
+							msgresp.totalHeapSize, msgresp.heapPeakSize, ctime(&msgresp.heapPeakedAt),  msgresp.totalOverhead);
 				}
 				else {
 					PRINT("\n");
 				}
-				sleep(3);
+				sleep(2);
 				// dbg(PRINT_MUST, "Received Msgs %u sequence %u\n", totalMsgs, msgSeq);
 			}
 			else
@@ -699,7 +941,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 					dbg(PRINT_MUST, "%s\n", (HEAPWALK_FULL == cmd) ? "Already walked: None" : "No New Allocations");
 					if (HEAPWALK_INCREMENT == cmd) {
 						PRINT("\n");
-						sleep(3);
+						sleep(2);
 					}
 				}
 			}
@@ -708,11 +950,181 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 
 		if (HEAPWALK_FULL == cmd)
 		{
-			processHeapwalk(HEAPWALK_INCREMENT, pid, tid, isSelfTest, resp, listIndex, mmapIn);
+			if (!totalMsgs) {
+				prnThreadStatCmd = HEAPWALK_INCREMENT;
+			}
+			processHeapwalk(HEAPWALK_INCREMENT, pid, tid, isSelfTest, resp, listIndex, mmapIn, analyze);
+			//if (NULL == mmapIn) {
+			/*if ((NULL == mmapIn) && analyze) {
+				printThreadStat();
+				PRINT("\nTotalHeapSize(bytes)    : %lu\n(excludes tool overhead)\nPeakSize(bytes)         : %lu at %sTool Overhead(bytes)    : %lu\n\n", 
+						msgresp.totalHeapSize, msgresp.heapPeakSize, ctime(&msgresp.heapPeakedAt),  msgresp.totalOverhead);
+			}*/
+		}
+		else {
+			if (!analyze && !isSelfTest) {
+				readAndStoreSmaps(pid, 0);
+			}
+			else { // For now no use case to load smaps from offline store
+			       //readStoredSmaps(pid, 0);
+			}
 		}
 	}
 }
 #endif
+
+void performOfflineAnalysis(int pid) //, char *offlinePidSuffix)
+{
+	char tmpArray[256]; 
+	FILE *fp;
+	bool isFullWalkAvailable = 0, isWalkAvailable = 0;
+
+	sprintf(tmpArray, "%s/hpf_%d%s.dat", outPath, pid, offlinePidSuffix?offlinePidSuffix:"");
+	fp = fopen(tmpArray, "rb");
+	if (NULL != fp) {
+		isFullWalkAvailable = 1;
+		fclose(fp);
+	}
+	else {
+		dbg(PRINT_ERROR, "%s: couldn't open [%s]\n", tmpArray, strerror(errno));
+	}
+
+	sprintf(tmpArray, "%s/hp_%d%s.dat", outPath, pid, offlinePidSuffix?offlinePidSuffix:"");
+	fp = fopen(tmpArray, "rb");
+	if (NULL != fp) {
+		isWalkAvailable = 1;
+		fclose(fp);
+	}else {
+		dbg(PRINT_ERROR, "%s: couldn't open [%s]\n", tmpArray, strerror(errno));
+	}
+
+	sprintf(tmpArray, "%s/smaps_%d%s.txt", outPath, pid, offlinePidSuffix?offlinePidSuffix:"");
+	fp = fopen(tmpArray, "r");
+	if (NULL != fp) {
+		if ((1 == isFullWalkAvailable) && (1 == isWalkAvailable)) {
+			PRINT("\nsmaps and heapwalk available..processing distribution\n");
+			prnThreadStatCmd = HEAPWALK_BASE;
+			processHeapwalk(HEAPWALK_MMAP_ENTRIES, pid, 0, 0, NULL, NULL, NULL, 1);
+		}
+		fclose(fp);
+	}
+	else {
+		dbg(PRINT_ERROR, "%s: couldn't open [%s]\n", tmpArray, strerror(errno));
+	}
+
+	if ((1 == isFullWalkAvailable) && (1 == isWalkAvailable)) {
+		printf("\nProcessing heapwalk full..\n");
+		prnThreadStatCmd = HEAPWALK_FULL;
+		processHeapwalk(HEAPWALK_FULL, pid, 0, 0, NULL, NULL, NULL, 1);
+	}
+	else if (1 == isWalkAvailable) { // see if hp_%d is atleast available...
+			printf("\nProcessing heapwalk ..\n");
+			prnThreadStatCmd = HEAPWALK_INCREMENT;
+			processHeapwalk(HEAPWALK_INCREMENT, pid, 0, 0, NULL, NULL, NULL, 1);
+	}
+	else {
+		PRINT("Offline heapwalk files not available for analysis at %s suffix [%s] for %d\n", outPath, (offlinePidSuffix) ? &offlinePidSuffix[1] : "", pid);
+	}
+}
+
+void printHelp(int argc, char *argv[])
+{
+        printf("Offline analysis# %s [--readdir/-r <dir>] [--analyze <pid>]  [--suffix <suffix, for ex, 2, entry, exit..forming pid_<suffix>]\n", argv[0]);
+        printf("Interactive mode# %s [--output/-o <output directory, default /tmp>]\n", argv[0]);
+        printf("Perform selftest# %s selftest\n", argv[0]);
+        printf("Do testrun# %s testrun\n", argv[0]);
+        exit(1);
+}
+
+void processArgs(int argc, char *argv[])
+{
+	int offlineAnalysisPid = 0;
+	//char *offlinePidSuffix = NULL;
+
+	for (int i=1; i < argc; i++) {
+		if (!strcmp(argv[i], "--outdir") || !strcmp(argv[i], "-o")) {
+			if (i < argc + 1) {
+				i++;
+				DIR *outputDir = opendir(argv[i]);
+				if (outputDir) {
+					closedir(outputDir);
+					outPath = argv[i];
+					continue;
+				}
+				printf("Dir %s access error %d [%s]\n", argv[i], errno, strerror(errno));
+			}
+			printHelp(argc, argv);
+		}
+		if (!strcmp(argv[i], "--readdir") || !strcmp(argv[i], "-r")) {
+			if (i < argc + 1) {
+				i++;
+				DIR *readDir = opendir(argv[i]);
+				if (readDir) {
+					closedir(readDir);
+					outPath = argv[i];
+					continue;
+				}
+				printf("Dir %s access error %d [%s]\n", argv[i], errno, strerror(errno));
+			}
+			printHelp(argc, argv);
+		}
+		if (!strcmp(argv[i], "--analyze")) {
+			if (i < argc + 1) {
+				i++;
+				offlineAnalysisPid = atoi(argv[i]);
+				continue;
+			}
+			printHelp(argc, argv);
+		}
+		if (!strcmp(argv[i], "--suffix")) {
+			if (i < argc + 1) {
+				i++;
+				//offlinePidSuffix = argv[i];
+				offlinePidSuffix = malloc(strlen(argv[i]) + 2);
+				snprintf(offlinePidSuffix, strlen(argv[i]) + 2, "_%s", argv[i]);
+				dbg(PRINT_INFO, "Offline analysis suffix %s\n", &offlinePidSuffix[1]);
+				continue;
+			}
+			printHelp(argc, argv);
+		}
+		if (!strcmp(argv[i], "selftest"))
+		{
+#ifdef SELF_TEST
+			FILE *fp = fopen("/tmp/memleakutil_selftest.txt", "w");
+			if (NULL != fp) {
+                		fclose(fp);
+        		}
+			outPath = "/tmp/";
+			selftest();
+#else
+			dbg(PRINT_MUST, "ERROR...Build with SELF_TEST compiler directive to run selftest\n");
+#endif
+			return;
+		}
+		if (!strcmp(argv[i], "testrun"))
+		{
+		
+#ifdef SELF_TEST
+			outPath = "/tmp/";
+			spawntestrunthread();
+#else
+			dbg(PRINT_MUST, "Build with SELF_TEST compiler directive to do testrun\n");
+#endif
+			return;
+		}
+		//if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) 
+		{
+			printHelp(argc, argv);
+		}
+	}
+	if (offlineAnalysisPid) {
+		if (NULL == outPath) {
+			outPath = "/tmp/";
+		}
+		performOfflineAnalysis(offlineAnalysisPid);
+		exit(0);
+	}
+}
 
 int main(int argc, char *argv[])
 {
@@ -739,8 +1151,10 @@ int main(int argc, char *argv[])
 	char cMAINTAIN_SINGLE_LIST_FOR_CMD = 'N';
 #endif
 
-	printf("Build Options:\nMEMWRAP_COMMANDS_VERSION=%d\nOPTIMIZE_MQ_TRANSFER_FOR_CMD=%c\nPREPEND_LISTDATA_FOR_CMD=%c\nMAINTAIN_SINGLE_LIST_FOR_CMD=%c\n\n",
+	printf("Build Options:\nMEMWRAP_COMMANDS_VERSION=%d\nOPTIMIZE_MQ_TRANSFER_FOR_CMD=%c\nPREPEND_LISTDATA_FOR_CMD=%c\nMAINTAIN_SINGLE_LIST_FOR_CMD=%c\n",
 		   MEMWRAP_COMMANDS_VERSION, cOPTIMIZE_MQ_TRANSFER_FOR_CMD, cPREPEND_LISTDATA_FOR_CMD, cMAINTAIN_SINGLE_LIST_FOR_CMD);
+	printf("Minimum Overhead for each allocation %lu bytes\n\n", sizeof(LIST));
+	printf("msg_resp size %lu bytes\n", sizeof(msg_resp));
 #if defined(DEBUG_RUNTIME)
 	char *dbg_level = getenv("DEBUG_ENV_LEVEL");
 	if (dbg_level)
@@ -759,30 +1173,10 @@ int main(int argc, char *argv[])
 	dbg(PRINT_INFO, "PRINT_INFO (=%d) will be printed\n", PRINT_INFO);
 	dbg(PRINT_NOISE, "PRINT_NOISE (=%d) will be printed\n", PRINT_NOISE);
 
-	if (2 == argc)
-	{
-		if (!strcmp(argv[1], "selftest"))
-		{
-#ifdef SELF_TEST
-			FILE *fp = fopen("/tmp/memleakutil_selftest.txt", "w");
-			if (NULL != fp) {
-                		fclose(fp);
-        		}
-			selftest();
-#else
-			dbg(PRINT_MUST, "Build with SELF_TEST compiler directive to run selftest\n");
-#endif
-		}
-		if (!strcmp(argv[1], "testrun"))
-		{
-#ifdef SELF_TEST
-			spawntestrunthread();
-#else
-			dbg(PRINT_MUST, "Build with SELF_TEST compiler directive to do testrun\n");
-#endif
-		}
+	processArgs(argc, argv);
+	if (NULL == outPath) {
+		outPath = "/tmp/";
 	}
-
 	mqrecv = createMq();
 
 	while (1)
@@ -810,7 +1204,7 @@ int main(int argc, char *argv[])
 			PRINT("4. Mark all allocations as walked\n   %s\n", "-Doesn't show any entries, but marks all as walked");
 			PRINT("5. Unmark walked allocations\n   %s\n", "-Doesn't show any entries, but subsequent walk shows all entries");
 			PRINT("6. Call malloc_stats\n   %s\n", "-Calls malloc_stats API that prints the details in stderr");
-			PRINT("7. Return\n   %s\n", "-Return to explore different Process");
+			PRINT("0. Return\n   %s\n", "-Return to explore different Process");
 			PRINT("Enter cmd to send: ");
 			scanf("%d", &msgcmd.cmd);
 
@@ -853,7 +1247,7 @@ int main(int argc, char *argv[])
 				{
 #ifdef OPTIMIZE_MQ_TRANSFER
 					if (!storeHeapwalk(mqrecv, msgcmd.cmd, msgcmd.pid, 0)) {
-						processHeapwalk(msgcmd.cmd, msgcmd.pid, threadid, 0, NULL, NULL, NULL);
+						processHeapwalk(msgcmd.cmd, msgcmd.pid, threadid, 0, NULL, NULL, NULL, 0);
 					} else {
 						dbg(PRINT_ERROR, "storeHeapwalk failed\n");
 					}
@@ -944,7 +1338,7 @@ int main(int argc, char *argv[])
 				sleep(3);
 				break;
 
-			case HEAPWALK_EXIT:
+			case HEAPWALK_BASE:
 				mq_close(mqsend);
 				mqsend = -1;
 				break;

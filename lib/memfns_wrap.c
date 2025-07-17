@@ -38,6 +38,8 @@ STATIC LIST *memhead, *memtail, *wmemhead, *wmemtail;
 
 #ifdef ENABLE_STATISTICS
 unsigned long totalHeapSize, totalOverhead;
+unsigned long heapPeakSize;
+time_t heapPeakedAt;
 #endif
 
 #ifndef PREPEND_LISTDATA
@@ -204,13 +206,14 @@ static void *thread_start(void *arg)
 				{
 					dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
 #ifdef OPTIMIZE_MQ_TRANSFER
-					heapwalk(mqsend, 0);
+					heapwalk(mqsend, 0, NULL);
 #else
 					msg_resp msgresp;
 					heapwalk(mqsend);
 					msgresp.seq = -1;
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
-					snprintf(msgresp.msg, MQ_MSG_SIZE, "TotalHeapSize %lu Bytes + Tool Overhead %lu", totalHeapSize, totalOverhead);
+					snprintf(msgresp.msg, MQ_MSG_SIZE, "TotalHeapSize %lu Bytes + Tool Overhead %lu. Peak %lu at %u", 
+							totalHeapSize, totalOverhead, heapPeakSize, heapPeakedAt);
 #endif
 					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 #endif
@@ -228,13 +231,14 @@ static void *thread_start(void *arg)
 				{
 					dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
 #ifdef OPTIMIZE_MQ_TRANSFER
-					heapwalk(mqsend, 1);
+					heapwalk(mqsend, 1, NULL);
 #else
 					msg_resp msgresp;
 					heapwalk_full(mqsend);
 					msgresp.seq = -1;
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
-					snprintf(msgresp.msg, MQ_MSG_SIZE, "TotalHeapSize %lu Bytes + Tool Overhead %lu", totalHeapSize, totalOverhead);
+					snprintf(msgresp.msg, MQ_MSG_SIZE, "TotalHeapSize %lu Bytes + Tool Overhead %lu. Peak %lu at %u", 
+							totalHeapSize, totalOverhead, heapPeakSize, heapPeakedAt);
 #endif
 					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 #endif
@@ -252,7 +256,7 @@ static void *thread_start(void *arg)
 				{
 					dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
 #ifdef OPTIMIZE_MQ_TRANSFER
-					heapwalk(mqsend, 1);
+					heapwalk(mqsend, 1, NULL);
 #else
 					dbg(PRINT_MUST, "HEAPWALK_MMAP_ENTRIES supported only with OPTIMIZE_MQ_TRANSFER\n");
 #endif
@@ -693,13 +697,25 @@ void heapwalkReset()
  * @param mqsend The message queue descriptor to which memory information will be sent.
  * @param walkAll A flag indicating whether to walk all allocations or only new ones.
  */
-void heapwalk(mqd_t mqsend, bool walkAll)
+void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 {
 	msg_resp msgresp;
+	hp_walk_header hpwHdr = {MEMWRAP_MSG_RESP_VERSION,0};
 	LIST *tmp;
 
 	dbg(PRINT_NOISE, "%s: Enter\n", __FUNCTION__);
 	msgresp.numItemOrInfo = HEAPWALK_EMPTY;
+	/* to be tested and added
+	FILE *fp = fopen(fname, "wb");
+	if (NULL != fp) {
+		fseek(fp, 0, SEEK_SET);
+		if (!fwrite((void *)&hpwHdr, sizeof(hpwHdr), 1, fp)) {
+			dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+		}
+		fclose(fp);
+	}
+	dbg(PRINT_ERROR, "1Total entries: %lu, version: %u\n", hpwHdr.totalEntries, hpwHdr.version);
+	*/
 	pthread_mutex_lock(&lock);
 	if (walkAll)
 	{
@@ -720,7 +736,9 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 					 * then proceed with to be walked send */
 					if (hpwmemhead == hpfmemhead) {
 						msgresp.numItemOrInfo = HEAPWALK_EMPTY;
-						mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+						if (NULL == fname) {
+							mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+						}
 					}
 					break;
 				}
@@ -735,6 +753,7 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 				msgresp.xfer[msgresp.numItemOrInfo].tid = tmp->tid;
 				msgresp.xfer[msgresp.numItemOrInfo].seconds = tmp->seconds;
 				msgresp.numItemOrInfo++;
+				hpwHdr.totalEntries++;
 				if (MAX_MSG_XFER <= msgresp.numItemOrInfo)
 				{
 					if (tmp->next)
@@ -747,9 +766,25 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
 						msgresp.totalHeapSize = totalHeapSize;
 						msgresp.totalOverhead = totalOverhead;
+						msgresp.heapPeakSize = heapPeakSize;
+						msgresp.heapPeakedAt = heapPeakedAt;
 #endif
 					}
-					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+					if (NULL == fname) {
+						mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+					}
+					else {
+						/* Reason we open everyting and write is to avoid showing an allocation
+						 * during fopen and fwrite 
+						 */
+						FILE *fp = fopen(fname, "ab");
+						if (NULL != fp) {
+							if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fp)) {
+								dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+							}
+							fclose(fp);
+						}
+					}
 					msgresp.numItemOrInfo = HEAPWALK_EMPTY;
 				}
 				tmp = tmp->next;
@@ -760,16 +795,48 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
 				msgresp.totalHeapSize = totalHeapSize;
 				msgresp.totalOverhead = totalOverhead;
+				msgresp.heapPeakSize = heapPeakSize;
+				msgresp.heapPeakedAt = heapPeakedAt;
 #endif
 				// TODO: for now send the full size. sync receiver to accept for lesser size
 				/* Send the message with the information collected */
-				mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+				if (NULL == fname) {
+					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+				}
+				else {
+					FILE *fp = fopen(fname, "ab");
+					if (NULL != fp) {
+						if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fp)) {
+							dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+						}
+						fclose(fp);
+					}
+				}
 			}
 		}
 		else
 		{
 			// msgresp.numItemOrInfo = HEAPWALK_EMPTY; Initialized already
-			mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+			if (NULL == fname) {
+				mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+			}
+		}
+		if (fname) {
+			pthread_mutex_unlock(&lock);
+			/* To be tested and added later
+			if (hpwHdr.totalEntries) {
+				fp = fopen(fname, "ab");
+				if (NULL != fp) {
+					fseek(fp, 0, SEEK_SET);
+					if (!fwrite((void *)&hpwHdr, sizeof(hpwHdr), 1, fp)) {
+						dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+					}
+					fclose(fp);
+				}
+			}
+			*/
+			dbg(PRINT_INFO, "2Total entries: %lu, version: %u\n", hpwHdr.totalEntries, hpwHdr.version);
+			return;
 		}
 	}
 
@@ -793,6 +860,7 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 			msgresp.xfer[msgresp.numItemOrInfo].tid = tmp->tid;
 			msgresp.xfer[msgresp.numItemOrInfo].seconds = tmp->seconds;
 			msgresp.numItemOrInfo++;
+			hpwHdr.totalEntries++;
 			if (MAX_MSG_XFER <= msgresp.numItemOrInfo)
 			{
 				if (tmp->next)
@@ -805,10 +873,23 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
 					msgresp.totalHeapSize = totalHeapSize;
 					msgresp.totalOverhead = totalOverhead;
+					msgresp.heapPeakSize = heapPeakSize;
+					msgresp.heapPeakedAt = heapPeakedAt;
 #endif
 				}
 				dbg(PRINT_NOISE, "%s: Sending %d items\n", __FUNCTION__, msgresp.numItemOrInfo);
-				mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+				if (NULL == fname) {
+					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+				}
+				else {
+					FILE *fp = fopen(fname, "ab");
+					if (NULL != fp) {
+						if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fp)) {
+							dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+						}
+						fclose(fp);
+					}
+				}
 				msgresp.numItemOrInfo = 0;
 			}
 			// prev = tmp;
@@ -821,9 +902,22 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
 			msgresp.totalHeapSize = totalHeapSize;
 			msgresp.totalOverhead = totalOverhead;
+			msgresp.heapPeakSize = heapPeakSize;
+			msgresp.heapPeakedAt = heapPeakedAt;
 #endif
 			// TODO: for now send the full size. sync receiver to accept for lesser size
-			mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+			if (NULL == fname) {
+				mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+			}
+			else {
+				FILE *fp = fopen(fname, "ab");
+				if (NULL != fp) {
+					if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fp)) {
+						dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+					}
+					fclose(fp);
+				}
+			}
 		}
 
 #ifdef MAINTAIN_SINGLE_LIST
@@ -862,12 +956,231 @@ void heapwalk(mqd_t mqsend, bool walkAll)
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
 		msgresp.totalHeapSize = totalHeapSize;
 		msgresp.totalOverhead = totalOverhead;
+		msgresp.heapPeakSize = heapPeakSize;
+		msgresp.heapPeakedAt = heapPeakedAt;
 #endif
 		// msgresp.numItemOrInfo = HEAPWALK_EMPTY;
-		mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+		if (NULL == fname) {
+			mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+		}
+		else {
+			FILE *fp = fopen(fname, "ab");
+			if (NULL != fp) {
+				if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fp)) {
+					dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+				}
+				fclose(fp);
+			}
+		}
 	}
 	pthread_mutex_unlock(&lock);
+	/*
+	if (hpwHdr.totalEntries) {
+		fp = fopen(fname, "ab");
+		if (NULL != fp) {
+			fseek(fp, 0, SEEK_SET);
+			if (!fwrite((void *)&hpwHdr, sizeof(hpwHdr), 1, fp)) {
+				dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+			}
+			fclose(fp);
+		}
+	}
+	*/
+	dbg(PRINT_INFO, "3Total entries: %lu, version: %u\n", hpwHdr.totalEntries, hpwHdr.version);
 	dbg(PRINT_NOISE, "%s: Exit\n", __FUNCTION__);
+}
+
+int storeSmaps(char *suffix)
+{
+	char mmapTmpArray[1024]; /* Used to read entries from /proc/pid/smaps...big enough to hold large entries */
+	FILE *fpMmap;
+	if (suffix) {
+		sprintf(mmapTmpArray, "/tmp/smaps_%d_%s.txt", getpid(), suffix);
+	}
+	else {
+		sprintf(mmapTmpArray, "/tmp/smaps_%d.txt", getpid());
+	}
+	fpMmap = fopen(mmapTmpArray, "w");
+
+	if (NULL != fpMmap) {
+		static unsigned skipToEntry = 0, skipToSize = 0, skipToRss = 0, skipToRollover = 0; 
+		unsigned skippedToLearn = 0;
+
+		time_t timenow = time(NULL);
+		//struct tm *tmNow = localtime(&timenow); /* This allocates 15/17/20 bytes randomly creaing confusion during heapwalk. so avoid by using epoch
+		//if (0 == strftime(mmapTmpArray, sizeof(mmapTmpArray), "YYYY_MM_DD HH_MM_SS %Y_%m_%d %H_%M_%S", tmNow)) {
+			sprintf(mmapTmpArray, "Date in epoch: %lu secs", timenow); // see if this is warned in 32 bit systems..
+		//}
+		fprintf(fpMmap, "%s\n", mmapTmpArray);
+		sprintf(mmapTmpArray, "/proc/%u/smaps", getpid());
+		FILE *smap = fopen(mmapTmpArray, "r");
+		if (smap) {
+			unsigned lines_To_skip = skipToEntry;
+			unsigned skipped = 1; // Tracks current skips
+			unsigned expect_entry = 1, expect_size = 0, expect_rss = 0;
+
+			MMAP_anon tmp = {0};
+			while (fgets(mmapTmpArray, 1024, smap)) {
+				if (skipToRollover) { // Learnt the format
+					if (++skipped > lines_To_skip) {
+						if (expect_entry) {
+							/* aaaad3ff0000-aaaad4139000 r-xp 00000000 b3:02 2368                       /usr/bin/bash */
+							if (3 <= sscanf(mmapTmpArray, "%lx-%lx %s %*x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, tmp.entryName)) {
+								dbg(PRINT_NOISE,"Read Entry %s %lx-%lx %s", mmapTmpArray, tmp.startAddress, tmp.endAddress, tmp.entryName);
+								lines_To_skip = skipToSize;
+								skipped = 1;
+								expect_size = 1;
+								expect_entry = 0;
+							}
+							else {
+								dbg(PRINT_ERROR,"Error Reading Entry from %s", mmapTmpArray);
+							}
+						} 
+						else if (expect_size) {
+							if (sscanf(mmapTmpArray, "Size: %u kB", &tmp.size)) {
+								lines_To_skip = skipToRss;
+								skipped = 1;
+								expect_rss = 1;
+								expect_size = 0;
+							}
+							else {
+								dbg(PRINT_ERROR,"Error Reading Size from %s", mmapTmpArray);
+							}
+						} 
+						else if (expect_rss) {
+							if (sscanf(mmapTmpArray, "Rss: %u kB", &tmp.rss)) {
+								lines_To_skip = skipToRollover;
+								skipped = 1;
+								expect_entry = 1;
+								expect_rss = 0;
+								fprintf(fpMmap, "%lx-%lx %u %u %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
+								memset(&tmp, 0, sizeof(MMAP_anon));
+							}
+							else {
+								dbg(PRINT_ERROR,"Error Reading Rss from %s", mmapTmpArray);
+							}
+						} 
+					}
+					else {
+						dbg(PRINT_INFO, "Skipping, skipped vs lines_To_skip %u:%u, line %s", skipped, lines_To_skip, mmapTmpArray);
+					}
+				}
+				else { // Learn here
+					if (!skipToEntry) {
+						if (3 <= sscanf(mmapTmpArray, "%lx-%lx %s %*x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, tmp.entryName)) {
+							tmp.size = tmp.endAddress - tmp.startAddress;
+							skipToEntry = skippedToLearn + 1;
+							skippedToLearn = 0;
+						}
+						else {
+							skippedToLearn++;
+						}
+					}
+					else if (!skipToSize) {
+						if (sscanf(mmapTmpArray, "Size: %u kB", &tmp.size)) {
+							skipToSize = skippedToLearn + 1;
+							skippedToLearn = 0;
+						}
+						else {
+							skippedToLearn++;
+						}
+					}
+					else if (!skipToRss) {
+						if (sscanf(mmapTmpArray, "Rss: %u kB", &tmp.rss)) {
+							skipToRss = skippedToLearn + 1;
+							skippedToLearn = 0;
+							fprintf(fpMmap, "%lx-%lx %u %u %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
+							memset(&tmp, 0, sizeof(MMAP_anon));
+						}
+						else {
+							skippedToLearn++;
+						}
+					}
+					else if (!skipToRollover) {
+                                                if (3 <= sscanf(mmapTmpArray, "%lx-%lx %s %*x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, tmp.entryName)) {
+                                                        tmp.size = tmp.endAddress - tmp.startAddress;
+                                                        skipToRollover = skippedToLearn + 1;
+							skippedToLearn = 0;
+							expect_size = 1;
+							expect_entry = 0;
+                                                }
+                                                else {
+                                                        skippedToLearn++;
+                                                }
+                                        }
+					else {
+						PRINT("%s:%d: Shouldn't get here..read line %s\n", __FUNCTION__, __LINE__, mmapTmpArray);
+					}
+				}
+			}
+			fclose(smap);
+		}
+		else {
+			PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
+			return 1;
+		}
+		fclose(fpMmap);
+	}
+	else {
+		PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
+		return 1;
+	}
+	return 0;
+}
+/* Stores either full or incremental walk into /tmp/hp(f)_pid_[suffix].data */
+int saveHeapwalk(char *suffix)
+{
+	char heapwalkFile[32];
+	
+	//return 0;
+	
+	if (NULL == suffix || '\0' == suffix[0]) {
+		sprintf(heapwalkFile, "/tmp/hpf_%d.dat", getpid());
+	}
+	else {
+		sprintf(heapwalkFile, "/tmp/hpf_%d_%s.dat", getpid(), suffix);
+	}
+	FILE *fpHWalk = fopen(heapwalkFile, "wb");
+	if (NULL == fpHWalk)
+	{
+		dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
+		return 1;
+	}
+	fclose(fpHWalk);
+	heapwalk(-1, 1, heapwalkFile);
+
+	if (NULL == suffix || '\0' == suffix[0]) {
+		sprintf(heapwalkFile, "/tmp/hp_%d.dat", getpid());
+	}
+	else {
+		sprintf(heapwalkFile, "/tmp/hp_%d_%s.dat", getpid(), suffix);
+	}
+	fpHWalk = fopen(heapwalkFile, "wb");
+	if (NULL == fpHWalk)
+	{
+		dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
+		return 1;
+	}
+	fclose(fpHWalk);
+	heapwalk(-1, 0, heapwalkFile);
+	storeSmaps(suffix);
+	return 0;
+}
+void saveHeapWalkAtExit()
+{
+	dbg(PRINT_MUST, "Calling to save heapwalk\n");
+	saveHeapwalk("atexit");
+}
+
+void registerAtExit(void)
+{
+	//PRINT("ATEXIT_MAX = %ld\n", sysconf(_SC_ATEXIT_MAX));
+	if (atexit(saveHeapWalkAtExit)) {
+		PRINT("%s: Error atexit()\n", __FUNCTION__);
+	}
+	else
+		PRINT("%s: Registered atexit()\n", __FUNCTION__);
+	return;
 }
 #else /* else of #ifdef OPTIMIZE_MQ_TRANSFER */
 
@@ -1001,6 +1314,7 @@ void heapwalk_full(mqd_t mqsend)
 #endif
 	pthread_mutex_unlock(&lock);
 }
+
 #endif
 
 // TODO: not completed for prependITem to list and prepend list data combination
@@ -1052,6 +1366,43 @@ void prependItemToList(void *item, unsigned int size, void *ra)
 		memtail = tmp;
 	memhead = tmp;
 	pthread_mutex_unlock(&lock);
+}
+#endif
+
+#ifdef ENABLE_STATISTICS
+/**
+ * @brief Get the alignment value from the stored flag.
+ *
+ * This function extracts the original alignment value.
+ *
+ * @param alignment The calculated alignment value.
+ * @return The original alignment value. Note: Will not work for invalid alignment like 0
+ */
+size_t __attribute__((visibility("internal"))) getAlignment(unsigned alignmentInOnesPos)
+{
+	size_t alignment = 1;
+	for (unsigned int i = 1; i < alignmentInOnesPos; i++)
+	{
+		alignment <<= 1;
+	}
+	return alignment;
+}
+
+unsigned __attribute__((visibility("internal"))) isPowerOfTwo(size_t alignment) 
+{
+	unsigned noOfOnes = 0;
+        while (alignment) {
+		if (alignment & 0x1) {
+			if (!noOfOnes) {
+				noOfOnes++;
+			}
+			else {
+				return 0;
+			}
+		}
+                alignment = alignment >> 1;
+        }
+        return (noOfOnes)? 1 : 0;
 }
 #endif
 
@@ -1168,6 +1519,24 @@ void appendItemToList(void *item, unsigned int size, unsigned int flags, void *r
 	{
 		totalOverhead += sizeof(LIST);
 	}
+	/*** Taken care in common_aligned()
+	else { // memaligned entry
+		unsigned int alignment = getAlignment((flags >> 8));
+		if (alignment > sizeof(LIST)) {
+			totalOverhead += alignment;
+		}
+		else if ((sizeof(LIST) % alignment)) {
+			totalOverhead += (sizeof(LIST) + (sizeof(LIST) % alignment));
+		}
+		else {
+			totalOverhead += sizeof(LIST);
+		}
+	}
+	***/
+	if (heapPeakSize <= totalHeapSize) {
+		heapPeakSize = totalHeapSize;
+		heapPeakedAt = listPtr->seconds;
+	}
 #endif
 	pthread_mutex_unlock(&lock);
 }
@@ -1176,22 +1545,20 @@ void appendItemToList(void *item, unsigned int size, unsigned int flags, void *r
 /**
  * @brief Sets the alignment value for a given alignment.
  *
- * This function calculates and sets the alignment value based on the given alignment.
+ * This function calculates One's position or n in 2^n.
  *
- * @param alignment The alignment value.
+ * @param alignment The alignment value. 
+ *        Should be a power of 2 (as well as multiple/greater than sizeof(void*)) 
  * @return The calculated alignment value.
  */
-unsigned int setAlignment(unsigned int alignment)
+unsigned int __attribute__((visibility("internal"))) setAlignment(size_t alignment)
 {
-	for (unsigned int i = 1; i <= 16; i++)
-	{
-		alignment = alignment >> 1;
-		if (!(alignment))
-		{
-			return i;
-		}
-	}
-	return 0;
+	unsigned alignmentInOnesPos = 0;
+        while (alignment) {
+                alignmentInOnesPos++;
+                alignment = alignment >> 1;
+        }
+        return alignmentInOnesPos;
 }
 
 /****
@@ -1231,7 +1598,7 @@ void *deleteItemFromList(void *item)
 		}
 		else
 		{
-			unsigned int alignment = 1 << (flags - 1);
+			unsigned int alignment = getAlignment((flags >> 8));
 			if (alignment > sizeof(LIST))
 			{
 				ptr = (char *)item - alignment;
@@ -1641,7 +2008,7 @@ __attribute__((visibility("default"))) void *realloc(void *curPtr, size_t newSiz
 		if (deleteItemFromList(&wmemhead, &wmemtail, curPtr) && deleteItemFromList(&memhead, &memtail, curPtr) && (0 < gMemInitialized))
 #endif
 		{
-			dbg(PRINT_ERROR, "%s: Delete failed for %p, probably bug in list? corrupt?\n",
+			dbg(PRINT_ERROR, "%s: Delete failed for %p, probably a. double free? b. bug in list? c. corrupt?\n",
 				__FUNCTION__, curPtr);
 		}
 		else
@@ -1733,7 +2100,7 @@ __attribute__((visibility("default"))) void free(void *ptr)
 	{
 		if (NULL == (ptr = deleteItemFromList(ptr)))
 		{
-			dbg(PRINT_ERROR, "%s: List Delete failed for %p list bug? corrupt pointer?\n", __FUNCTION__, ptr);
+			dbg(PRINT_ERROR, "%s: List Delete failed for %p, probably a. double free? b. list bug? c. corrupt pointer?\n", __FUNCTION__, ptr);
 		}
 		else if ((0 < gMemInitialized) && ((gInitialAlloc > (char *)ptr) || ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)ptr)))
 		{
@@ -1747,7 +2114,7 @@ __attribute__((visibility("default"))) void free(void *ptr)
 	if (deleteItemFromList(&wmemhead, &wmemtail, ptr) && deleteItemFromList(&memhead, &memtail, ptr) && (0 < gMemInitialized))
 #endif // #ifdef MAINTAIN_SINGLE_LIST
 	{
-		dbg(PRINT_ERROR, "%s: List Delete failed for %p list bug? corrupt pointer?\n", __FUNCTION__, ptr);
+		dbg(PRINT_ERROR, "%s: List Delete failed for %p, probably a. double free? b. list bug? c. corrupt pointer?\n", __FUNCTION__, ptr);
 	}
 	if ((ptr != NULL) && ((gInitialAlloc > (char *)ptr) || ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)ptr)))
 	{
@@ -1771,6 +2138,7 @@ void *common_memalign(int type, size_t alignment, size_t size)
 {
 	// track me
 	void *p = NULL;
+
 #ifdef PREPEND_LISTDATA
 	/* 2 challenges.
 	First, memalign'd address returns needs to hold LIST pointer as well, which is 32/64 bytes in 32-bit/64-bit compilers
@@ -1839,7 +2207,6 @@ void *common_memalign(int type, size_t alignment, size_t size)
 		/* If gInitIndex == alignment, then below will unnecessarily add alignment. But that is rare */
 		gInitIndex = gInitIndex + alignment - (gInitIndex % alignment);
 		p = &gInitialAlloc[gInitIndex];
-		// TODO: check if alignment is power of 2 as well as multiple of sizeof(void*)??. %%NOT IMPORTANT%%
 		if (newSize % sizeof(void *))
 		{
 			gInitIndex += (newSize + (sizeof(void *) - newSize % sizeof(void *)));
@@ -1872,17 +2239,17 @@ void *common_memalign(int type, size_t alignment, size_t size)
 		{
 			ptr = ptr + sizeof(LIST);
 		}
+#ifdef ENABLE_STATISTICS
+		pthread_mutex_lock(&lock);
+		totalOverhead += (newSize - size);
+		pthread_mutex_unlock(&lock);
+#endif
+		appendItemToList(ptr, size, setAlignment(alignment) << 8, __builtin_return_address(0));
 	}
 	else
 	{
 		ptr = NULL;
 	}
-#ifdef ENABLE_STATISTICS
-	pthread_mutex_lock(&lock);
-	totalOverhead += (newSize - size);
-	pthread_mutex_unlock(&lock);
-#endif
-	appendItemToList(ptr, size, setAlignment(alignment), __builtin_return_address(0));
 	return ptr;
 #else
 	// prependItemToList(p, size, 0, __builtin_return_address(0));
@@ -1904,7 +2271,7 @@ void *common_memalign(int type, size_t alignment, size_t size)
  */
 __attribute__((visibility("default"))) void *memalign(size_t alignment, size_t size)
 {
-	return common_memalign(1, alignment, size);
+	return isPowerOfTwo(alignment)? common_memalign(1, alignment, size) : NULL;
 }
 #endif
 
@@ -1920,7 +2287,7 @@ __attribute__((visibility("default"))) void *memalign(size_t alignment, size_t s
  */
 __attribute__((visibility("default"))) void *aligned_alloc(size_t __alignment, size_t __size)
 {
-	return common_memalign(2, __alignment, __size);
+	return (!isPowerOfTwo(alignment) && !(__size%__alignment)) ? common_memalign(2, __alignment, __size) : NULL;
 }
 #endif
 
@@ -1937,7 +2304,11 @@ __attribute__((visibility("default"))) void *aligned_alloc(size_t __alignment, s
  */
 __attribute__((visibility("default"))) int posix_memalign(void **__memptr, size_t __alignment, size_t __size)
 {
-	*__memptr = common_memalign(3, __alignment, __size);
+	if ((sizeof(void*) <= alignment) && isPowerOfTwo(alignment)) {
+		*__memptr = common_memalign(3, __alignment, __size);
+	}
+	return (*__memptr)? 0 : EINVAL;
+	 
 }
 #endif
 

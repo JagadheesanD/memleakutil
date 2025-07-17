@@ -24,7 +24,17 @@
 #define MEMWRAP_MINOR_VERSION "0"
 
 /* MEMWRAP_COMMANDS_VERSION is 8 bit unsigned - shouldn't be greater than 255 */
-#define MEMWRAP_COMMANDS_VERSION 2
+#define MEMWRAP_COMMANDS_VERSION 3
+
+/* Below is part of heapwalk file header hp_walk_header, used to check compatibility. 
+ * Increment in case msg_resp structure changes. It's 8 bit unsigned, max 255
+ * */
+#define MEMWRAP_MSG_RESP_VERSION 1
+
+typedef struct hp_header {
+	int version; /* for now, using only last 8 bits for for msg_resp version */
+	unsigned long totalEntries;
+} hp_walk_header;
 
 /* Memory Management Options */
 #define PREPEND_LISTDATA /* Allocate extra for holding the data to avoid additional allocation */
@@ -111,9 +121,8 @@ typedef struct mmap
 	unsigned long long heapEntries; /* Total size of heap entries within this mmap */
 	unsigned int size;
 	unsigned int rss;
-	unsigned int dirty;
+	char entryName[256];
 	char perm[8];
-	char entryName[64];
 	struct HEATMAP heatmap[MAX_HEAT_MAP];
 	struct mmap *prev;
 	struct mmap *next;
@@ -136,8 +145,8 @@ typedef enum
 	HEAPWALK_MMAP_ENTRIES = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 3),
 	HEAPWALK_MARKALL = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 4),
 	HEAPWALK_RESET_MARKED = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 5),
-	HEAPWALK_MALLOC_STATS = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 6),
-	HEAPWALK_EXIT = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 7)
+	HEAPWALK_MALLOC_STATS = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 6)
+	//HEAPWALK_EXIT = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 0)
 } mycmds;
 
 typedef enum
@@ -157,6 +166,8 @@ typedef struct mq_msg_recv
 	unsigned int numItemOrInfo;
 	unsigned long totalHeapSize;
 	unsigned long totalOverhead;
+	unsigned long heapPeakSize;
+	time_t heapPeakedAt;
 	LISTxfer xfer[MAX_MSG_XFER];
 #endif
 } msg_resp;
@@ -174,7 +185,9 @@ void *memalign(size_t alignment, size_t size);
 #endif
 
 #ifdef OPTIMIZE_MQ_TRANSFER
-void heapwalk(mqd_t mqsend, bool walkAll);
+void heapwalk(mqd_t mqsend, bool walkAll, char *fname);
+int saveHeapwalk(char *suffix);
+void registerAtExit(void);
 #else
 void heapwalk(mqd_t mqsend);
 void heapwalk_full(mqd_t mqsend);
