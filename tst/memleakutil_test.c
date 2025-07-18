@@ -21,75 +21,126 @@
 
 extern mqd_t createMq(void);
 extern void storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest);
-extern void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int *listIndex, MMAP_anon *mmapIn);
+extern void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int *listIndex, MMAP_anon *mmapIn, bool analyze);
 
 /* Just run a test thread, that allocates and deallocates, so that
  * a testrun shall be done to see heap walk and other options */
 static void* test_thread_start(void *arg)
 {
-	char *x[8];
-	int alloc = 1;
+	char *x[12] = {0};
+	int alloc = 2;
 	int index = 0;
 	int list_size = 3;
+	int alloc_sleep = 1;
+	int free_sleep = 1;
 #if defined(__USE_XOPEN2K)
-	list_size++;
+	list_size += 5;
 #endif
 #if defined(__USE_ISOC11)
-	list_size++;
+	list_size += 5;
 #endif
 #if defined(USE_DEPRECATED_MEMALIGN)    
-	list_size++;
+	list_size += 5;
 #endif
+	registerAtExit();
+
+	saveHeapwalk("");
+	saveHeapwalk(NULL);
+	// Let main thread completes it's init
+	sleep(5);  saveHeapwalk("init");
 	while (1)
 	{
-		if (1 == alloc) {
+		if (alloc) {
 			if (index < list_size)
 			{
+				sleep(alloc_sleep);
 				x[index++] = malloc(sizeof(int));
 				dbg(PRINT_MUST, "x[%d] is malloc'd %p\n", index-1, x[index-1]);
-				sleep(5);
+				sleep(alloc_sleep);
 				x[index++] = calloc(1,sizeof(int));
 				dbg(PRINT_MUST, "x[%d] is calloc'd %p\n", index-1, x[index-1]);
-				sleep(5);
+				sleep(alloc_sleep);
 				x[index] = realloc(x[index-2], 16);
 				x[index-2] = 0;
 				index++;
 				dbg(PRINT_MUST, "x[%d] is realloc'd %p\n", index-1, x[index-1]);
-				sleep(5);
+				sleep(alloc_sleep);
 #if defined(__USE_XOPEN2K)
-				int memaligned = posix_memalign((void**)&x[index++], 16, 32);
+				int memaligned = posix_memalign((void**)&x[index++], sizeof(LIST)-1, 32);
 				dbg(PRINT_MUST, "x[%d] is posix memalign'd %p, %d\n", index-1, x[index-1], memaligned);
-				sleep(5);
+				sleep(2);
+				memaligned = posix_memalign((void**)&x[index++], 16, 32);
+				dbg(PRINT_MUST, "x[%d] is posix memalign'd %p, %d\n", index-1, x[index-1], memaligned);
+				sleep(2);
+				memaligned = posix_memalign((void**)&x[index++], sizeof(LIST), 32);
+				dbg(PRINT_MUST, "x[%d] is posix memalign'd %p, %d\n", index-1, x[index-1], memaligned);
+				sleep(2);
+				memaligned = posix_memalign((void**)&x[index++], sizeof(LIST)+1, 32);
+				dbg(PRINT_MUST, "x[%d] is posix memalign'd %p, %d\n", index-1, x[index-1], memaligned);
+				sleep(2);
+				memaligned = posix_memalign((void**)&x[index++], 128, 32);
+				dbg(PRINT_MUST, "x[%d] is posix memalign'd %p, %d\n", index-1, x[index-1], memaligned);
+				sleep(2);
 #endif
 #if defined(__USE_ISOC11)
-				x[index++] = aligned_alloc(32, 64);
+				x[index++] = aligned_alloc(sizeof(LIST)-1, 64);
 				dbg(PRINT_MUST, "x[%d] is aligned alloc %p\n", index-1, x[index-1]);
-				sleep(5);
+				sleep(2);
+				x[index++] = aligned_alloc(16, 64);
+				dbg(PRINT_MUST, "x[%d] is aligned alloc %p\n", index-1, x[index-1]);
+				sleep(2);
+				x[index++] = aligned_alloc(sizeof(LIST), 64);
+				dbg(PRINT_MUST, "x[%d] is aligned alloc %p\n", index-1, x[index-1]);
+				sleep(2);
+				x[index++] = aligned_alloc(sizeof(LIST)+1, 64);
+				dbg(PRINT_MUST, "x[%d] is aligned alloc %p\n", index-1, x[index-1]);
+				sleep(2);
+				x[index++] = aligned_alloc(128, 64);
+				dbg(PRINT_MUST, "x[%d] is aligned alloc %p\n", index-1, x[index-1]);
+				sleep(2);
 #endif
 #if defined(USE_DEPRECATED_MEMALIGN)    
-				x[index++] = memalign(64, 64);
-				dbg(PRINT_MUST, "x[%d] is memalign %p\n", index-1, x[index-1]);
-				sleep(5);
+				x[index++] = memalign(sizeof(LIST)-1, 64);
+				dbg(PRINT_MUST, "x[%d] is memalign %p, alignment %lu\n", index-1, x[index-1], sizeof(LIST)-1);
+				sleep(alloc_sleep);
+				x[index++] = memalign(16, 64);
+				dbg(PRINT_MUST, "x[%d] is memalign %p, alignment %u\n", index-1, x[index-1], 32);
+				sleep(alloc_sleep);
+				x[index++] = memalign(sizeof(LIST), 64);
+				dbg(PRINT_MUST, "x[%d] is memalign %p, alignment %lu\n", index-1, x[index-1], sizeof(LIST));
+				sleep(alloc_sleep);
+				x[index++] = memalign(sizeof(LIST)+1, 64);
+				dbg(PRINT_MUST, "x[%d] is memalign %p, alignment %lu\n", index-1, x[index-1], sizeof(LIST)+1);
+				sleep(alloc_sleep);
+				x[index++] = memalign(128, 64);
+				dbg(PRINT_MUST, "x[%d] is memalign %p, alignment %u\n", index-1, x[index-1], 128);
+				sleep(alloc_sleep);
 #endif
 			}
 			else {
+				if (2 == alloc) { // first time, do dlsym
+					//load_libc_functions();
+				}
 				alloc = 0;
 			}
 		}
 		else {
-			sleep(10);
+			sleep(free_sleep);
+			PRINT("Freeing spree..\n");
 			for (int i=0; i<list_size; i++) {
 				if (x[i]) 
 				{
 					dbg(PRINT_MUST, "Freeing x[%d] %p\n", i, x[i]);
 					free(x[i]);
 					x[i] = 0;
+					sleep(free_sleep);
 				}else{
 					dbg(PRINT_MUST, "Not Freeing x[%d] %p\n", i, x[i]);
 				}
 			}
 			alloc = 1;
 			index = 0;
+			sleep(10);
 		}
 	}
 	return NULL;
@@ -218,7 +269,7 @@ void sendAndRecv(mqd_t mq, int cmd, LIST *resp, int listSize, int initVal)
 			sleep(1);
 			storeHeapwalk(mq, msgcmd.cmd, msgcmd.pid, 1);
 			int xferIndex = 0;
-			processHeapwalk(msgcmd.cmd, msgcmd.pid, 0, 1, resp, &xferIndex, NULL);
+			processHeapwalk(msgcmd.cmd, msgcmd.pid, 0, 1, resp, &xferIndex, NULL, 0);
 #endif
 			}
 			break;

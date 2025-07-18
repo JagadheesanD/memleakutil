@@ -1130,14 +1130,14 @@ int storeSmaps(char *suffix)
 /* Stores either full or incremental walk into /tmp/hp(f)_pid_[suffix].data */
 int saveHeapwalk(char *suffix)
 {
-	char heapwalkFile[32];
-	
-	//return 0;
-	
+	char *heapwalkFile;
+
 	if (NULL == suffix || '\0' == suffix[0]) {
+		heapwalkFile = alloca(32);
 		sprintf(heapwalkFile, "/tmp/hpf_%d.dat", getpid());
 	}
 	else {
+		heapwalkFile = alloca(strlen(suffix) + 32);
 		sprintf(heapwalkFile, "/tmp/hpf_%d_%s.dat", getpid(), suffix);
 	}
 	FILE *fpHWalk = fopen(heapwalkFile, "wb");

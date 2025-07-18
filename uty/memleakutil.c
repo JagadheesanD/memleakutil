@@ -416,7 +416,7 @@ void addThreadStatEntry(int tid, unsigned long size)
  *
  * This function prints the total allocation size for each thread.
  */
-void printThreadStat()
+void printAndFreeThreadStat()
 {
 	threadStat *threadstat = threadStatHead;
 	PRINT("\nThreadwise Allocation total in bytes:\nTid:\t");
@@ -436,6 +436,17 @@ void printThreadStat()
 		threadStatHead = threadstat;
 	}
 	PRINT("\n");
+}
+
+void freeThreadStat()
+{
+	threadStat *threadstat = threadStatHead;
+	while (threadstat)
+	{
+		threadstat = threadstat->next;
+		free(threadStatHead);
+		threadStatHead = threadstat;
+	}
 }
 
 /* During offline analysis, read from outPath, and populate anon when cmd is 3 */
@@ -659,6 +670,8 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 	msg_resp msgresp;
 	int msgsize = sizeof(msg_resp);
 	char heapwalkFile[32];
+	/*static unsigned long totalHeapSize = 0, heapPeakSize = 0, totalOverhead = 0;
+	static time_t heapPeakedAt = 0;*/
 
 	if (HEAPWALK_MMAP_ENTRIES == cmd)
 	{
@@ -924,8 +937,8 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 				}
 				if ((prnThreadStatCmd == cmd)) // || analyze)
 				{   
-					printThreadStat();
-					PRINT("\nTotalHeapSize(bytes)    : %lu\n(excludes tool overhead)\nPeakSize(bytes)         : %lu at %sTool Overhead(bytes)    : %lu\n\n", 
+					printAndFreeThreadStat();
+					PRINT("\nTotalHeapSize(bytes)    : %lu\n(excludes tool overhead)\nPeakTotalHeapSize(bytes): %lu at %sTool Overhead(bytes)    : %lu\n\n", 
 							msgresp.totalHeapSize, msgresp.heapPeakSize, ctime(&msgresp.heapPeakedAt),  msgresp.totalOverhead);
 				}
 				else {
@@ -953,11 +966,18 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 			if (!totalMsgs) {
 				prnThreadStatCmd = HEAPWALK_INCREMENT;
 			}
+			/*else
+			{	// So that we can show this summary if heapwalk increment 
+				totalHeapSize = msgresp.totalHeapSize;
+				heapPeakSize = msgresp.heapPeakSize;
+				heapPeakedAt = msgresp.heapPeakedAt;
+				totalOverhead = msgresp.totalOverhead;
+			}*/
 			processHeapwalk(HEAPWALK_INCREMENT, pid, tid, isSelfTest, resp, listIndex, mmapIn, analyze);
 			//if (NULL == mmapIn) {
 			/*if ((NULL == mmapIn) && analyze) {
-				printThreadStat();
-				PRINT("\nTotalHeapSize(bytes)    : %lu\n(excludes tool overhead)\nPeakSize(bytes)         : %lu at %sTool Overhead(bytes)    : %lu\n\n", 
+				printAndFreeThreadStat();
+				PRINT("\nTotalHeapSize(bytes)    : %lu\n(excludes tool overhead)\nPeakTotalHeapSize(bytes): %lu at %sTool Overhead(bytes)    : %lu\n\n", 
 						msgresp.totalHeapSize, msgresp.heapPeakSize, ctime(&msgresp.heapPeakedAt),  msgresp.totalOverhead);
 			}*/
 		}
@@ -1015,6 +1035,7 @@ void performOfflineAnalysis(int pid) //, char *offlinePidSuffix)
 	if ((1 == isFullWalkAvailable) && (1 == isWalkAvailable)) {
 		printf("\nProcessing heapwalk full..\n");
 		prnThreadStatCmd = HEAPWALK_FULL;
+		//prnThreadStatCmd = HEAPWALK_INCREMENT;
 		processHeapwalk(HEAPWALK_FULL, pid, 0, 0, NULL, NULL, NULL, 1);
 	}
 	else if (1 == isWalkAvailable) { // see if hp_%d is atleast available...
