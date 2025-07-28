@@ -47,7 +47,7 @@ The tool consists of two main parts:
 
 **memleakutil** communicates with **libmemfnswrap.so**, interposing itself in between the target process and the Glibc memory functions. It provides interactive commands to perform heap walks, marking memory allocations, and mapping memory regions for detailed analysis.
 
-**libmemfnswrap.so** can be linked to the executable during the linking phase or be preloaded using **LD_PRELOAD** to begin intercepting and collecting information such as:
+**libmemfnswrap.so** can be linked to the executable during the linking phase or be preloaded using **LD_PRELOAD** (Note: Make sure there are no child process via popen(), that might get affected due to prints from the library) to begin intercepting and collecting information such as:
 * Pointer addresses
 * Allocation sizes
 * Thread IDs
@@ -75,7 +75,7 @@ make -f Makefile.raw
 ## How to use?
 **memleakutil** performs heap walks on processes running with libmemfnswrap.so attached. It interacts via a POSIX message queue */mq_wrapper_<pid>*, opened by a thread running within the target process. During a heap walk, the tool prints the total heap size and tool overhead.
 ### Steps
-1. Start target process with libmemfnswrap.so attached.
+1. Start target process with libmemfnswrap.so attached. When using LD_PRELOAD, make sure child process's by popen() doesn't get affected from debug prints from the library.
 ```
 LD_PRELOAD=/path/to/libmemfnswrap.so ./target_process
 ```
