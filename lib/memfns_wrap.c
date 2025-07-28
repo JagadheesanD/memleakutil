@@ -283,8 +283,10 @@ static void *thread_start(void *arg)
 		}
 		else
 		{
-			dbg(PRINT_ERROR, "Error, mq_receive from mq_util: %s.\n",
-				strerror(errno));
+			/** Careful, this error msg going to stdout might affect child process's called via popen()!! **/
+			//dbg(PRINT_INFO, "Error, mq_receive from %s [%s]\n", mq_name, strerror(errno));
+			char tmp[96];
+			fwrite(tmp, snprintf(tmp, 95, "Error, mq_receive from %s [%s]\n", mq_name, strerror(errno)), 1, stderr);
 			sleep(1);
 		}
 	}
@@ -351,7 +353,8 @@ extern void *__dso_handle __attribute__((__weak__));
  */
 static void run_in_child_context(void)
 {
-	dbg(PRINT_ERROR, "%s: pid %d\n", __FUNCTION__, getpid());
+	/** Careful, this info msg going to stdout, when enabled, might affect child process's called via popen()!! **/
+	/*dbg(PRINT_INFO, "%s: pid %d\n", __FUNCTION__, getpid());*/
 	heapwalk_thread_start();
 }
 
@@ -366,13 +369,12 @@ __attribute__((constructor))
  */
 void load_libc_functions()
 {
-	fwrite("load_libc_functions+\n", strlen("load_libc_functions+\n"), 1, stderr);
+	//fwrite("load_libc_functions+\n", strlen("load_libc_functions+\n"), 1, stderr);
 
 	/* Does not need an execution, No effect */
 	if (-1 == gMemInitialized)
 	{
 		gMemInitialized = 0;
-		// fwrite("dlsym\n", strlen("dlsym\n"), 1, stderr);
 		/* Load Memory allocation functions from libc */
 #ifdef __GLIBC__
 		libc_calloc_fnptr = dlsym(RTLD_NEXT, "__libc_calloc"); /* Throw error when all reads fail */
@@ -432,11 +434,11 @@ void load_libc_functions()
 		{
 			if (__register_atfork(NULL, NULL, run_in_child_context, __dso_handle) != 0)
 			{
-				fwrite("__register_atfork", strlen("__register_atfork"), 1, stderr);
-				dbg(PRINT_ERROR, "%s: Error __register_atfork\n", __FUNCTION__);
+				fwrite("Error in __register_atfork", strlen("Error in __register_atfork"), 1, stderr);
 				abort();
 			}
 			gMemInitialized = 1;
+			/** Careful, these info msg going to stdout, when enabled, might affect child process's called via popen()!! **/
 			dbg(PRINT_INFO, "%s: Loaded symbols from libc, malloc:calloc:free:realloc [%p][%p][%p][%p]\n",
 				__FUNCTION__, libc_malloc_fnptr, libc_calloc_fnptr, libc_free_fnptr, libc_realloc_fnptr);
 #if defined(USE_DEPRECATED_MEMALIGN)
