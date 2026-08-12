@@ -1,12 +1,13 @@
 BUILD_OUTPUT=.
-CFLAGS += -g -Wall -I./inc
+CFLAGS += -g -Wall -I./inc 
+#-fno-omit-frame-pointer
 CFLAGS_SELFTEST += ${CFLAGS} -DSELF_TEST
 
 LDFLAGS += -L${BUILD_OUTPUT}
-LDFLAGS_SELFTEST += ${LDFLAGS} -Wl,-O1 -Wl,--hash-style=gnu -Wl,--no-as-needed -lmemfnswrap -Wl,--as-needed
+LDFLAGS_SELFTEST += ${LDFLAGS} -Wl,-O1 -Wl,--hash-style=gnu -Wl,--no-as-needed -lmemfnswrap -lpthreadintercept -Wl,--as-needed
 
 
-default: library link bin
+default: library pthread link bin
 
 selftest: selftestlib link selftestbin
 
@@ -14,25 +15,33 @@ library:
 	$(CC) $(CFLAGS) lib/memfns_wrap.c -o ${BUILD_OUTPUT}/memfns_wrap.o -Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed  -c -fPIC 
 	$(CC) $(LDFLAGS) ${BUILD_OUTPUT}/memfns_wrap.o -lrt -ldl -shared -Wl,-soname,libmemfnswrap.so.0 -o ${BUILD_OUTPUT}/libmemfnswrap.so.0.0
 
+pthread:
+	$(CC) $(CFLAGS) lib/pthread_intercept.c -o ${BUILD_OUTPUT}/pthread_intercept.o -Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed  -c -fPIC 
+	$(CC) $(LDFLAGS) ${BUILD_OUTPUT}/pthread_intercept.o -lrt -ldl -shared -Wl,-soname,libpthreadintercept.so.0 -o ${BUILD_OUTPUT}/libpthreadintercept.so.0.0
+
 bin:
 	$(CC) $(CFLAGS) -c uty/memleakutil.c -o ${BUILD_OUTPUT}/memleakutil.o
-	$(CC) $(LDFLAGS) ${BUILD_OUTPUT}/memleakutil.o -lpthread -lrt -ldl -o ${BUILD_OUTPUT}/memleakutil
+	$(CC) $(LDFLAGS) ${BUILD_OUTPUT}/memleakutil.o -lpthread -lrt -ldl -lm -o ${BUILD_OUTPUT}/memleakutil
 
 selftestlib:
 	$(CC) $(CFLAGS_SELFTEST) lib/memfns_wrap.c -o ${BUILD_OUTPUT}/memfns_wrap.o -Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed  -c -fPIC 
 	$(CC) $(LDFLAGS) ${BUILD_OUTPUT}/memfns_wrap.o -lrt -ldl -shared -Wl,-soname,libmemfnswrap.so.0 -o ${BUILD_OUTPUT}/libmemfnswrap.so.0.0
+	$(CC) $(CFLAGS_SELFTEST) lib/pthread_intercept.c -o ${BUILD_OUTPUT}/pthread_intercept.o -Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed  -c -fPIC 
+	$(CC) $(LDFLAGS) ${BUILD_OUTPUT}/pthread_intercept.o -lrt -ldl -shared -Wl,-soname,libpthreadintercept.so.0 -o ${BUILD_OUTPUT}/libpthreadintercept.so.0.0
 
 selftestbin:
 	$(CC) $(CFLAGS_SELFTEST) -c uty/memleakutil.c -o ${BUILD_OUTPUT}/memleakutil.o
 	$(CC) $(CFLAGS_SELFTEST) -c tst/memleakutil_test.c -o ${BUILD_OUTPUT}/memleakutil_test.o
-	$(CC) $(LDFLAGS_SELFTEST) ${BUILD_OUTPUT}/memleakutil.o ${BUILD_OUTPUT}/memleakutil_test.o -lpthread -lrt -ldl -o ${BUILD_OUTPUT}/memleakutil
+	$(CC) $(LDFLAGS_SELFTEST) ${BUILD_OUTPUT}/memleakutil.o ${BUILD_OUTPUT}/memleakutil_test.o -lpthread -lrt -ldl -lm -lpthreadintercept -o ${BUILD_OUTPUT}/memleakutil
 
 link:
 	cd ${BUILD_OUTPUT}
 	ln -sf libmemfnswrap.so.0 libmemfnswrap.so
 	ln -sf libmemfnswrap.so.0.0 libmemfnswrap.so.0
+	ln -sf libpthreadintercept.so.0 libpthreadintercept.so
+	ln -sf libpthreadintercept.so.0.0 libpthreadintercept.so.0
 
 clean:
-	rm -f libmemfnswrap.so* memleakutil memleakutil.o memfns_wrap.o memleakutil_test.o
+	rm -f libmemfnswrap.so* memleakutil memleakutil.o memfns_wrap.o memleakutil_test.o pthread_intercept.o libpthreadintercept.so*
 
 
