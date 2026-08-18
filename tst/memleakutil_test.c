@@ -1,8 +1,3 @@
-/*
- * Copyright [2025] [Jagadheesan.D@gmail.com]
- *
- * SPDX-License-Identifier: Apache-2.0
- */
 #ifndef SELF_TEST
 
 #error "Define SELF_TEST"
@@ -26,48 +21,7 @@
 
 extern mqd_t createMq(void);
 extern void storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest);
-extern void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int *listIndex, MMAP_info *mmapIn, bool analyze);
-
-static void* test_thread_start_join(void *arg)
-{
-	time_t timet = time(0);
-	struct tm *tmNow = localtime(&timet);
-	char timef[32] = {'\0'};
-	if (0 == strftime(timef, sizeof(timef), "%Y_%m_%d_%H_%M_%S", tmNow)) {
-		/* may not fail..but still */
-		sprintf(timef, "%lu", timet);
-	}
-	sleep(2);
-	printf("[%ld] [%s] test thread started...join %s\n", pthread_self(), __FUNCTION__, timef);
-	return (void*)23;
-}
-static void* test_thread_start_detached(void *arg)
-{
-	time_t timet = time(0);
-	struct tm *tmNow = localtime(&timet);
-	char timef[32] = {'\0'};
-	if (0 == strftime(timef, sizeof(timef), "%Y_%m_%d_%H_%M_%S", tmNow)) {
-		/* may not fail..but still */
-		sprintf(timef, "%lu", timet);
-	}
-
-	printf("[%ld] [%s] test thread started...detached %s\n", pthread_self(), __FUNCTION__, timef);
-	sleep(5);
-	return NULL;
-}
-static void* test_thread_start_return(void *arg)
-{
-	time_t timet = time(0);
-	struct tm *tmNow = localtime(&timet);
-	char timef[32] = {'\0'};
-	if (0 == strftime(timef, sizeof(timef), "%Y_%m_%d_%H_%M_%S", tmNow)) {
-		/* may not fail..but still */
-		sprintf(timef, "%lu", timet);
-	}
-
-	printf("[%ld] [%s] test thread started...exiting at %s\n", pthread_self(), __FUNCTION__, timef);
-	return NULL;
-}
+extern void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int *listIndex, MMAP_anon *mmapIn, bool analyze);
 
 /* Just run a test thread, that allocates and deallocates, so that
  * a testrun shall be done to see heap walk and other options */
@@ -76,18 +30,24 @@ static void* test_thread_start(void *arg)
 	char *x[12] = {0};
 	int alloc = 2;
 	int index = 0;
-	int list_size = 4;
+	int list_size = 3;
 	int alloc_sleep = 1;
 	int free_sleep = 1;
-#if defined(__USE_XOPEN2K) || defined(__USE_ISOC11) || defined(USE_DEPRECATED_MEMALIGN)
+#if defined(__USE_XOPEN2K)
 	list_size += 5;
 #endif
-	//registerAtExit();
+#if defined(__USE_ISOC11)
+	list_size += 5;
+#endif
+#if defined(USE_DEPRECATED_MEMALIGN)    
+	list_size += 5;
+#endif
+	registerAtExit();
 
-	//saveHeapwalk("");
-	//saveHeapwalk(NULL);
+	saveHeapwalk("");
+	saveHeapwalk(NULL);
 	// Let main thread completes it's init
-	sleep(5);  //saveHeapwalk("init");
+	sleep(5);  saveHeapwalk("init");
 	while (1)
 	{
 		if (alloc) {
@@ -97,15 +57,11 @@ static void* test_thread_start(void *arg)
 				x[index++] = malloc(sizeof(int));
 				dbg(PRINT_MUST, "x[%d] is malloc'd %p\n", index-1, x[index-1]);
 				sleep(alloc_sleep);
-				x[index++] = malloc(4096 * 10);
-				memset(x[index-1], 0, 4096+512);
-				dbg(PRINT_MUST, "x[%d] is malloc'd %p size 4096*10\n", index-1, x[index-1]);
-				sleep(alloc_sleep);
 				x[index++] = calloc(1,sizeof(int));
 				dbg(PRINT_MUST, "x[%d] is calloc'd %p\n", index-1, x[index-1]);
 				sleep(alloc_sleep);
-				x[index] = realloc(x[index-3], 16);
-				x[index-3] = 0;
+				x[index] = realloc(x[index-2], 16);
+				x[index-2] = 0;
 				index++;
 				dbg(PRINT_MUST, "x[%d] is realloc'd %p\n", index-1, x[index-1]);
 				sleep(alloc_sleep);
@@ -163,7 +119,7 @@ static void* test_thread_start(void *arg)
 			}
 			else {
 				if (2 == alloc) { // first time, do dlsym
-					load_libc_functions();
+					//load_libc_functions();
 				}
 				alloc = 0;
 			}
@@ -194,20 +150,10 @@ void spawntestrunthread()
 {
         pthread_t ptd;
 	pthread_attr_t attr;
-	
         pthread_attr_init(&attr);
-        if (0 != pthread_attr_setstacksize(&attr, 2*1024*1024)) {
-		printf("pthread_attr_setstacksize failed %d [%s]\n", errno, strerror(errno));
-	}
+        pthread_attr_setstacksize(&attr, 8*1024);
 
         pthread_create(&ptd, &attr, &test_thread_start, NULL);
-        pthread_create(&ptd, &attr, &test_thread_start_return, NULL);
-        pthread_create(&ptd, &attr, &test_thread_start_detached, NULL);
-	sleep(2);
-	pthread_detach(ptd);
-        pthread_create(&ptd, &attr, &test_thread_start_join, NULL);
-	int *ret = NULL;
-	pthread_join(ptd, (void**)&ret);
 }
 
 #ifndef MAINTAIN_SINGLE_LIST

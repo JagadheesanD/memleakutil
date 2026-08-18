@@ -1,8 +1,3 @@
-/*
- * Copyright [2025] [Jagadheesan.D@gmail.com]
- *
- * SPDX-License-Identifier: Apache-2.0
- */
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdlib.h>
@@ -78,11 +73,6 @@ char *gInitialAlloc;
 unsigned int gInitIndex;
 #define G_INITIAL_ALLOC_SIZE_ERROR "Increase G_INITIAL_ALLOC_SIZE\n"
 
-// This function pointer will be dlsym'd from libpthreadintercept.so
-typedef void (*sendPthreadIntercept_type)(mqd_t);
-sendPthreadIntercept_type sendPthreadIntercept_fnptr = NULL;
-void sndPthreadIntercepts(mqd_t);
-
 #if !defined(DISABLE_DEBUG) && defined(DEBUG_RUNTIME)
 int debug_level = 0;
 void dbg(int level, const char *fmt, ...)
@@ -137,15 +127,6 @@ void mapInitialMemory()
 	}
 }
 
-// Making it global to close & unlink during exit
-mqd_t mq;
-char mq_name[64];
-__attribute__((destructor)) void library_exit()
-{
-        mq_close(mq);
-        mq_unlink(mq_name);
-}
-
 /**
  * @brief Thread start function.
  *
@@ -160,8 +141,9 @@ static void *thread_start(void *arg)
 #ifndef SELF_TEST
 	dbg(PRINT_INFO, "%s: Starting thread: version %s\n", __FUNCTION__, versionString);
 #endif
-	mqd_t mqsend;
+	mqd_t mq, mqsend;
 	msg_cmd msgcmd;
+	char mq_name[64];
 	unsigned int prio;
 
 	struct mq_attr mqattr = ((struct mq_attr){0, 3, sizeof(msg_cmd), 0, {0}});
@@ -239,7 +221,7 @@ static void *thread_start(void *arg)
 					mq_close(mqsend);
 				}
 			}
-			else if ((HEAPWALK_FULL == msgcmd.cmd) || (HEAPWALK_LEAKCHECK == msgcmd.cmd))
+			else if (HEAPWALK_FULL == msgcmd.cmd)
 			{
 				mqsend = mq_open("/mq_util", O_WRONLY);
 				if (mqsend < 0) {
@@ -275,11 +257,9 @@ static void *thread_start(void *arg)
 					dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
 #ifdef OPTIMIZE_MQ_TRANSFER
 					heapwalk(mqsend, 1, NULL);
-					sndPthreadIntercepts(mqsend);
 #else
 					dbg(PRINT_MUST, "HEAPWALK_MMAP_ENTRIES supported only with OPTIMIZE_MQ_TRANSFER\n");
 #endif
-					mq_close(mqsend);
 				}
 			}
 			else if (HEAPWALK_MARKALL == msgcmd.cmd)
@@ -338,7 +318,6 @@ aligned_alloc_type libc_aligned_alloc_fnptr = NULL;
 typedef void *(*memalign_type)(size_t, size_t);
 memalign_type libc_memalign_fnptr = NULL;
 #endif
-
 
 /**
  * @brief Start the heapwalk thread.
@@ -726,8 +705,7 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 	hp_walk_header hpwHdr = {MEMWRAP_MSG_RESP_VERSION,0};
 	LIST *tmp;
 
-	dbg(PRINT_INFO, "%s+: hpfmemhead [%p] hpwmemhead [%p] hpfmemtail [%p]\n", __FUNCTION__, hpfmemhead, hpwmemhead, hpfmemtail);
-
+	dbg(PRINT_NOISE, "%s: Enter\n", __FUNCTION__);
 	msgresp.numItemOrInfo = HEAPWALK_EMPTY;
 	/* to be tested and added
 	FILE *fp = fopen(fname, "wb");
@@ -778,17 +756,14 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 				msgresp.xfer[msgresp.numItemOrInfo].seconds = tmp->seconds;
 				msgresp.numItemOrInfo++;
 				hpwHdr.totalEntries++;
-				dbg(PRINT_INFO, "%s: Processed %d walked items for sending\n", __FUNCTION__, msgresp.numItemOrInfo);
 				if (MAX_MSG_XFER <= msgresp.numItemOrInfo)
 				{
 					if (tmp->next)
 					{
-						dbg(PRINT_INFO, "%s: sending %d walked items..more to go\n", __FUNCTION__, msgresp.numItemOrInfo);
-							msgresp.numItemOrInfo |= HEAPWALK_ITEM_CONTN;
+						msgresp.numItemOrInfo |= HEAPWALK_ITEM_CONTN;
 					}
 					else
 					{ /* Set the end of list */
-						dbg(PRINT_INFO, "%s: sending %d walked items..finished\n", __FUNCTION__, msgresp.numItemOrInfo);
 						msgresp.numItemOrInfo |= HEAPWALK_ENDOF_LIST;
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
 						msgresp.totalHeapSize = totalHeapSize;
@@ -801,7 +776,7 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 						mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 					}
 					else {
-						/* Reason we open everytime and write is to avoid showing an allocation
+						/* Reason we open everyting and write is to avoid showing an allocation
 						 * during fopen and fwrite 
 						 */
 						FILE *fp = fopen(fname, "ab");
@@ -818,7 +793,6 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 			}
 			if (msgresp.numItemOrInfo)
 			{
-				dbg(PRINT_INFO, "%s: sending %d walked items..finishing outside loop\n", __FUNCTION__, msgresp.numItemOrInfo);
 				msgresp.numItemOrInfo |= HEAPWALK_ENDOF_LIST;
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
 				msgresp.totalHeapSize = totalHeapSize;
@@ -866,7 +840,7 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 			dbg(PRINT_INFO, "2Total entries: %lu, version: %u\n", hpwHdr.totalEntries, hpwHdr.version);
 			return;
 		}
-	} // if (walkAll)
+	}
 
 	msgresp.numItemOrInfo = HEAPWALK_EMPTY;
 #ifdef MAINTAIN_SINGLE_LIST
@@ -889,10 +863,8 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 			msgresp.xfer[msgresp.numItemOrInfo].seconds = tmp->seconds;
 			msgresp.numItemOrInfo++;
 			hpwHdr.totalEntries++;
-				dbg(PRINT_INFO, "%s: Processed %d unwalked items for sending\n", __FUNCTION__, msgresp.numItemOrInfo);
 			if (MAX_MSG_XFER <= msgresp.numItemOrInfo)
 			{
-				dbg(PRINT_INFO, "%s: Going to send %d unwalked items\n", __FUNCTION__, msgresp.numItemOrInfo);
 				if (tmp->next)
 				{
 					msgresp.numItemOrInfo |= HEAPWALK_ITEM_CONTN;
@@ -907,7 +879,7 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 					msgresp.heapPeakedAt = heapPeakedAt;
 #endif
 				}
-				dbg(PRINT_INFO, "%s: Sending %d unwalked items\n", __FUNCTION__, (msgresp.numItemOrInfo&(~(0x20000000))));
+				dbg(PRINT_NOISE, "%s: Sending %d items\n", __FUNCTION__, msgresp.numItemOrInfo);
 				if (NULL == fname) {
 					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 				}
@@ -927,7 +899,7 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 		}
 		if (msgresp.numItemOrInfo)
 		{
-			dbg(PRINT_NOISE, "%s: Sending final set of %d unwalked items\n", __FUNCTION__, msgresp.numItemOrInfo);
+			dbg(PRINT_NOISE, "%s: Sending final set of %d items\n", __FUNCTION__, msgresp.numItemOrInfo);
 			msgresp.numItemOrInfo |= HEAPWALK_ENDOF_LIST;
 #if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
 			msgresp.totalHeapSize = totalHeapSize;
@@ -1018,26 +990,6 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 	*/
 	dbg(PRINT_INFO, "3Total entries: %lu, version: %u\n", hpwHdr.totalEntries, hpwHdr.version);
 	dbg(PRINT_NOISE, "%s: Exit\n", __FUNCTION__);
-	dbg(PRINT_INFO, "%s-: hpfmemhead [%p] hpwmemhead [%p] hpfmemtail [%p]\n", __FUNCTION__, hpfmemhead, hpwmemhead, hpfmemtail);
-}
-
-void sndPthreadIntercepts(mqd_t mqsend)
-{
-	int once = 1;
-	if (once && (NULL == sendPthreadIntercept_fnptr)) {
-		dbg(PRINT_INFO, "Looking for sendPthreadIntercept\n");
-	       	sendPthreadIntercept_fnptr = dlsym(RTLD_DEFAULT, "sendPthreadIntercept"); /* Throw error when all reads fail */
-		once--;
-	}
-	if (sendPthreadIntercept_fnptr) {
-		sendPthreadIntercept_fnptr(mqsend);
-	}
-	else {
-		dbg(PRINT_ERROR, "sendPthreadIntercept not found\n");
-		msg_resp msgresp;
-		msgresp.numItemOrInfo = HEAPWALK_EMPTY;
-		mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
-	}
 }
 
 int storeSmaps(char *suffix)
@@ -1069,20 +1021,7 @@ int storeSmaps(char *suffix)
 			unsigned skipped = 1; // Tracks current skips
 			unsigned expect_entry = 1, expect_size = 0, expect_rss = 0;
 
-			MMAP_info tmp = {0};
-#if defined(PROCESS_PAGEMAP_IN_LIB)
-			sprintf(mmapTmpArray, "/proc/%d/pagemap", getpid());
-			FILE *pagemap = fopen(mmapTmpArray, "rb");
-			sprintf(mmapTmpArray, "/tmp/hpp_lib_%d.txt", getpid());
-			FILE *pagemapFp = fopen(mmapTmpArray, "w");
-			if (NULL == pagemapFp) {
-				PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
-				fclose(smap);
-				fclose(fpMmap);
-				return 1;
-			}
-			unsigned long startAddr = 0, endAddr = 0;
-#endif
+			MMAP_anon tmp = {0};
 			while (fgets(mmapTmpArray, 1024, smap)) {
 				if (skipToRollover) { // Learnt the format
 					if (++skipped > lines_To_skip) {
@@ -1117,12 +1056,7 @@ int storeSmaps(char *suffix)
 								expect_entry = 1;
 								expect_rss = 0;
 								fprintf(fpMmap, "%lx-%lx %u %u %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
-#if defined(PROCESS_PAGEMAP_IN_LIB)
-								if ('\0' == tmp.entryName[0] || strstr(tmp.entryName, "stack") || strstr(tmp.entryName, "heap")) {
-									startAddr = tmp.startAddress;endAddr = tmp.endAddress;
-								}
-#endif
-								memset(&tmp, 0, sizeof(MMAP_info));
+								memset(&tmp, 0, sizeof(MMAP_anon));
 							}
 							else {
 								dbg(PRINT_ERROR,"Error Reading Rss from %s", mmapTmpArray);
@@ -1130,7 +1064,7 @@ int storeSmaps(char *suffix)
 						} 
 					}
 					else {
-						dbg(PRINT_NOISE, "Skipping, skipped vs lines_To_skip %u:%u, line %s", skipped, lines_To_skip, mmapTmpArray);
+						dbg(PRINT_INFO, "Skipping, skipped vs lines_To_skip %u:%u, line %s", skipped, lines_To_skip, mmapTmpArray);
 					}
 				}
 				else { // Learn here
@@ -1158,12 +1092,7 @@ int storeSmaps(char *suffix)
 							skipToRss = skippedToLearn + 1;
 							skippedToLearn = 0;
 							fprintf(fpMmap, "%lx-%lx %u %u %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
-#if defined(PROCESS_PAGEMAP_IN_LIB)
-							if ('\0' == tmp.entryName[0] || strstr(tmp.entryName, "stack") || strstr(tmp.entryName, "heap")) {
-								startAddr = tmp.startAddress;endAddr = tmp.endAddress;
-							}
-#endif
-							memset(&tmp, 0, sizeof(MMAP_info));
+							memset(&tmp, 0, sizeof(MMAP_anon));
 						}
 						else {
 							skippedToLearn++;
@@ -1185,25 +1114,8 @@ int storeSmaps(char *suffix)
 						PRINT("%s:%d: Shouldn't get here..read line %s\n", __FUNCTION__, __LINE__, mmapTmpArray);
 					}
 				}
-#if defined(PROCESS_PAGEMAP_IN_LIB)
-				if (startAddr) {
-					unsigned long long pageinfo;
-					while (startAddr < endAddr) {
-						fseek(pagemap, (startAddr / sysconf(_SC_PAGE_SIZE)) * 8, SEEK_SET);
-						fread(&pageinfo, 8, 1, pagemap);
-						sprintf(mmapTmpArray, "0x%lx 0x%llx\n", startAddr, pageinfo);
-						fwrite(mmapTmpArray, 1, strlen(mmapTmpArray), pagemapFp);
-						startAddr += sysconf(_SC_PAGE_SIZE);
-					}
-					startAddr = 0;
-				}
-#endif
 			}
 			fclose(smap);
-#if defined(PROCESS_PAGEMAP_IN_LIB)
-			fclose(pagemapFp);
-			fclose(pagemap);
-#endif
 		}
 		else {
 			PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
@@ -1299,7 +1211,7 @@ void heapwalk(mqd_t mqsend)
 		while (tmp)
 		{
 #ifdef PREPEND_LISTDATA
-			snprintf(msgresp.msg, MQ_MSG_SIZE, "%p %u %p %u %ld%s", tmp->ptr, tmp->size, tmp->ra, tmp->tid, tmp->seconds, (tmp->flags & FLAGS_BIT1_REALLOC) ? " - R" : "");
+			snprintf(msgresp.msg, MQ_MSG_SIZE, "%p %u %p %u %ld%s", tmp->ptr, tmp->size, tmp->ra, tmp->tid, tmp->seconds, (tmp->flags & 0x1) ? " - R" : "");
 #else
 			// snprintf(msgresp.msg, MQ_MSG_SIZE, "Ptr: %p size: %u ra: %p tid: %ld time: %ld",
 			snprintf(msgresp.msg, MQ_MSG_SIZE, "%p %u %p %u %ld", tmp->ptr, tmp->size, tmp->ra, tmp->tid, tmp->seconds);
@@ -1387,7 +1299,7 @@ void heapwalk_full(mqd_t mqsend)
 #endif
 			msgresp.seq++;
 #ifdef PREPEND_LISTDATA
-			snprintf(msgresp.msg, MQ_MSG_SIZE, "%p %u %p %u %ld%s", tmp->ptr, tmp->size, tmp->ra, tmp->tid, tmp->seconds, (tmp->flags & FLAGS_BIT1_REALLOC) ? " - R" : "");
+			snprintf(msgresp.msg, MQ_MSG_SIZE, "%p %u %p %u %ld%s", tmp->ptr, tmp->size, tmp->ra, tmp->tid, tmp->seconds, (tmp->flags & 0x1) ? " - R" : "");
 #else
 			snprintf(msgresp.msg, MQ_MSG_SIZE, "%p %u %p %u %ld", tmp->ptr, tmp->size, tmp->ra, tmp->tid, tmp->seconds);
 #endif
@@ -1605,7 +1517,7 @@ void appendItemToList(void *item, unsigned int size, unsigned int flags, void *r
 
 #ifdef ENABLE_STATISTICS
 	totalHeapSize += size;
-	if (FLAGS_MEMALIGN > flags)
+	if (2 > flags)
 	{
 		totalOverhead += sizeof(LIST);
 	}
@@ -1672,7 +1584,6 @@ void *deleteItemFromList(void *item)
 {
 	void *ptr;
 	LIST *tmp = (LIST *)((char *)item - sizeof(LIST));
-
 	if (0xBEAD0000 == (tmp->flags & 0xFFFF0000))
 	{
 #ifdef ENABLE_STATISTICS
@@ -1680,8 +1591,8 @@ void *deleteItemFromList(void *item)
 #endif
 		unsigned int flags = tmp->flags & 0xFFFF;
 		tmp->flags = 0xDEAD0000;
-		if (FLAGS_MEMALIGN > flags)
-		{ // Bit0 = 0 --> allocated from glibc heap 1 --> allocated from static buffer Bit1 = 0 --> malloc/calloc 1 --> realloc
+		if (2 > flags)
+		{ // 0 --> malloc/calloc 1 --> realloc
 			ptr = (void *)tmp;
 #ifdef ENABLE_STATISTICS
 			overhead = sizeof(LIST);
@@ -1711,10 +1622,6 @@ void *deleteItemFromList(void *item)
 				overhead = sizeof(LIST);
 #endif
 			}
-		}
-
-		if (flags & FLAGS_BIT0_STATIC_BUFF_ALLOCATED) { // Comes from static buffer, so no need for glibc free
-			ptr = NULL;
 		}
 		pthread_mutex_lock(&lock);
 #ifndef MAINTAIN_SINGLE_LIST
@@ -1965,7 +1872,7 @@ __attribute__((visibility("default"))) void *malloc(size_t __size)
 #ifdef PREPEND_LISTDATA
 	__size += sizeof(LIST);
 #endif
-	void *ra = __builtin_return_address(0);
+
 	if (0 < gMemInitialized)
 	{
 		p = libc_malloc_fnptr(__size);
@@ -1996,18 +1903,14 @@ __attribute__((visibility("default"))) void *malloc(size_t __size)
 			fwrite(G_INITIAL_ALLOC_SIZE_ERROR, sizeof(G_INITIAL_ALLOC_SIZE_ERROR), 1, stderr);
 			abort();
 		}
-#ifdef PREPEND_LISTDATA // Though redundant, it saves runtime overhead
-		appendItemToList((char *)p + sizeof(LIST), __size - sizeof(LIST), FLAGS_BIT0_STATIC_BUFF_ALLOCATED, ra);
-		return (void *)((char *)p + sizeof(LIST));
-#endif
 	}
 	// TODO: NULL check is not done
 #ifdef PREPEND_LISTDATA
-	appendItemToList((char *)p + sizeof(LIST), __size - sizeof(LIST), FLAGS_BIT0_GLIBC_ALLOCATED, ra);
+	appendItemToList((char *)p + sizeof(LIST), __size - sizeof(LIST), 0, __builtin_return_address(0));
 	return (void *)((char *)p + sizeof(LIST));
 #else
-	// prependItemToList(p, __size, 0, ra);
-	appendItemToList(p, __size, ra);
+	// prependItemToList(p, __size, 0, __builtin_return_address(0));
+	appendItemToList(p, __size, __builtin_return_address(0));
 	return p;
 #endif
 }
@@ -2026,7 +1929,6 @@ __attribute__((visibility("default"))) void *calloc(size_t __nmemb, size_t __siz
 {
 	// track me
 	void *p = NULL;
-	void *ra = __builtin_return_address(0);
 #ifdef PREPEND_LISTDATA
 	/* Adjust the LIST structure size, doesn't matter, whether 2 * 5 is allocated or 1 * 10 */
 	__size = (__nmemb * __size) + sizeof(LIST);
@@ -2065,18 +1967,14 @@ __attribute__((visibility("default"))) void *calloc(size_t __nmemb, size_t __siz
 			abort();
 		}
 		memset(&gInitialAlloc[gInitIndex], 0, __nmemb * __size);
-#ifdef PREPEND_LISTDATA // Though redundant, it saves runtime overhead
-		appendItemToList((char *)p + sizeof(LIST), (__size - sizeof(LIST)), FLAGS_BIT0_STATIC_BUFF_ALLOCATED, ra);
-		return (void *)((char *)p + sizeof(LIST));
-#endif
 	}
 #ifdef PREPEND_LISTDATA
     /* Append item to the list and return adjusted pointer */
-	appendItemToList((char *)p + sizeof(LIST), (__size - sizeof(LIST)), FLAGS_BIT0_GLIBC_ALLOCATED, ra);
+	appendItemToList((char *)p + sizeof(LIST), (__size - sizeof(LIST)), 0, __builtin_return_address(0));
 	return (void *)((char *)p + sizeof(LIST));
 #else
-	// prependItemToList(p, __size*__nmemb, __nmemb, ra);
-	appendItemToList(p, __size * __nmemb, ra);
+	// prependItemToList(p, __size*__nmemb, __nmemb, __builtin_return_address(0));
+	appendItemToList(p, __size * __nmemb, __builtin_return_address(0));
 	return p;
 #endif
 }
@@ -2094,28 +1992,19 @@ __attribute__((visibility("default"))) void *calloc(size_t __nmemb, size_t __siz
 __attribute__((visibility("default"))) void *realloc(void *curPtr, size_t newSize)
 {
 	void *np;
-	void *ra = __builtin_return_address(0);
 
 	/* check curPtr, it can be null, or pointer allocated earlier via malloc or calloc */
-	LIST *item; // = (curPtr) ? getItem(curPtr) : NULL;
+	LIST *item = (curPtr) ? getItem(curPtr) : NULL;
 	unsigned int size = 0;
 
 	if (NULL != curPtr)
 	{
-		item = getItem(curPtr);
 #ifdef PREPEND_LISTDATA
-		void *del = deleteItemFromList(curPtr); // If there was issue in list, then just try to leave it to libc to flag if the pointer is corrupt
-	     	if (!newSize ) {
-			if (NULL != del) {
-				return libc_realloc_fnptr((void *)del, newSize);
-			}
-			return NULL;
-		}
-		/* Increase this for realloc to copy the entire previously allocated buffer into newly allocated pointer */
-		// Need to check if item is non-null?...TODO
-		size = item->size + sizeof(LIST); 
-#else
-#if MAINTAIN_SINGLE_LIST
+		/* Increase this for realloc to copy the entire previously allocated buffer into newly allocated pointer
+		size += sizeof(LIST); */
+		size = sizeof(LIST);
+		if (NULL == (item = deleteItemFromList(curPtr)))
+#elif MAINTAIN_SINGLE_LIST
 		if (deleteItemFromList(&hpfmemhead, &hpfmemtail, curPtr) && (0 < gMemInitialized))
 #else
 		if (deleteItemFromList(&wmemhead, &wmemtail, curPtr) && deleteItemFromList(&memhead, &memtail, curPtr) && (0 < gMemInitialized))
@@ -2124,33 +2013,35 @@ __attribute__((visibility("default"))) void *realloc(void *curPtr, size_t newSiz
 			dbg(PRINT_ERROR, "%s: Delete failed for %p, probably a. double free? b. bug in list? c. corrupt?\n",
 				__FUNCTION__, curPtr);
 		}
-		else if (!newSize) {
-			// Rare, so let's resort to old way of checking if this pointer was allocated from glibc pool and not from static buffer
-			if ((0 < gMemInitialized) && ((gInitialAlloc > (char *)item) || ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)item)))
-			{
-				libc_free_fnptr(curPtr);
-			}
-			return NULL;
-		}
 		else
 		{
-			size = item->size;
+			size += item->size;
 		}
-#endif
 	}
-	else {
-		item = NULL;
-		// TODO check for newSize is 0??
-	}
+	// else {
+	//	item = NULL;
+	// }
 
+	if (!newSize && curPtr)
+	{
+		if ((0 < gMemInitialized) && ((gInitialAlloc > (char *)item) || ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)item)))
+		{
+#ifdef PREPEND_LISTDATA
+			libc_free_fnptr((void *)item);
+#else
+			libc_free_fnptr(curPtr);
+#endif
+		}
+		return NULL;
+	}
 #ifdef PREPEND_LISTDATA
 	newSize += sizeof(LIST);
 	curPtr = (void *)item;
 #endif
 
 	// TODO: To be moved to general heap if initialized, see if curPtr allocated from gInitialAlloc..
-	if ( (item && !(item->flags | FLAGS_BIT0_GLIBC_ALLOCATED)) || ((NULL == curPtr) && (0 < gMemInitialized)) )
-				//(gInitialAlloc > (char *)curPtr) || ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)curPtr)))
+	if ((0 < gMemInitialized) && ((NULL == curPtr) || (gInitialAlloc > (char *)curPtr) ||
+								  ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)curPtr)))
 	{
 		/* During the previous allocation, since the start of the buffer was used for LIST, after reallocation, realloc is going to copy the whole
 		to the new buffer. Remember, we are going to give the newly allocated pointer + LIST size to the application.
@@ -2186,17 +2077,13 @@ __attribute__((visibility("default"))) void *realloc(void *curPtr, size_t newSiz
 		{
 			memcpy(np, curPtr, size); // FIXME: see if size needs to be checked..
 		}
-#ifdef PREPEND_LISTDATA
-		appendItemToList((char *)np + sizeof(LIST), newSize - sizeof(LIST), FLAGS_BIT0_STATIC_BUFF_ALLOCATED|FLAGS_BIT1_REALLOC, ra);
-		return (void *)((char *)np + sizeof(LIST));
-#endif
 	}
 #ifdef PREPEND_LISTDATA
-	appendItemToList((char *)np + sizeof(LIST), newSize - sizeof(LIST), FLAGS_BIT0_GLIBC_ALLOCATED|FLAGS_BIT1_REALLOC, ra);
+	appendItemToList((char *)np + sizeof(LIST), newSize - sizeof(LIST), 1, __builtin_return_address(0));
 	return (void *)((char *)np + sizeof(LIST));
 #else
-	// prependItemToList(np, totalsize, nmem, ra);
-	appendItemToList(np, newSize, ra);
+	// prependItemToList(np, totalsize, nmem, __builtin_return_address(0));
+	appendItemToList(np, newSize, __builtin_return_address(0));
 	return np;
 #endif
 }
@@ -2213,7 +2100,11 @@ __attribute__((visibility("default"))) void free(void *ptr)
 #ifdef PREPEND_LISTDATA
 	if (ptr)
 	{
-		if (NULL != (ptr = deleteItemFromList(ptr)))
+		if (NULL == (ptr = deleteItemFromList(ptr)))
+		{
+			dbg(PRINT_ERROR, "%s: List Delete failed for %p, probably a. double free? b. list bug? c. corrupt pointer?\n", __FUNCTION__, ptr);
+		}
+		else if ((0 < gMemInitialized) && ((gInitialAlloc > (char *)ptr) || ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)ptr)))
 		{
 			libc_free_fnptr(ptr);
 		}
@@ -2245,11 +2136,11 @@ __attribute__((visibility("default"))) void free(void *ptr)
  * @param size The size of memory to be allocated.
  * @return The aligned memory pointer.
  */
-void *common_memalign(int type, size_t alignment, size_t size, void *ra)
+void *common_memalign(int type, size_t alignment, size_t size)
 {
 	// track me
 	void *p = NULL;
-	unsigned flags = setAlignment(alignment) << 8;
+
 #ifdef PREPEND_LISTDATA
 	/* 2 challenges.
 	First, memalign'd address returns needs to hold LIST pointer as well, which is 32/64 bytes in 32-bit/64-bit compilers
@@ -2332,8 +2223,6 @@ void *common_memalign(int type, size_t alignment, size_t size, void *ra)
 			fwrite(G_INITIAL_ALLOC_SIZE_ERROR, sizeof(G_INITIAL_ALLOC_SIZE_ERROR), 1, stderr);
 			abort();
 		}
-
-		flags |= FLAGS_BIT0_STATIC_BUFF_ALLOCATED;
 	}
 #ifdef PREPEND_LISTDATA
 	char *ptr;
@@ -2357,7 +2246,7 @@ void *common_memalign(int type, size_t alignment, size_t size, void *ra)
 		totalOverhead += (newSize - size);
 		pthread_mutex_unlock(&lock);
 #endif
-		appendItemToList(ptr, size, flags, ra);
+		appendItemToList(ptr, size, setAlignment(alignment) << 8, __builtin_return_address(0));
 	}
 	else
 	{
@@ -2365,8 +2254,8 @@ void *common_memalign(int type, size_t alignment, size_t size, void *ra)
 	}
 	return ptr;
 #else
-	// prependItemToList(p, size, 0, ra);
-	appendItemToList(p, size, ra);
+	// prependItemToList(p, size, 0, __builtin_return_address(0));
+	appendItemToList(p, size, __builtin_return_address(0));
 	return p;
 #endif
 }
@@ -2384,8 +2273,7 @@ void *common_memalign(int type, size_t alignment, size_t size, void *ra)
  */
 __attribute__((visibility("default"))) void *memalign(size_t alignment, size_t size)
 {
-	void *ra = __builtin_return_address(0);
-	return isPowerOfTwo(alignment)? common_memalign(1, alignment, size, ra) : NULL;
+	return isPowerOfTwo(alignment)? common_memalign(1, alignment, size) : NULL;
 }
 #endif
 
@@ -2401,8 +2289,7 @@ __attribute__((visibility("default"))) void *memalign(size_t alignment, size_t s
  */
 __attribute__((visibility("default"))) void *aligned_alloc(size_t __alignment, size_t __size)
 {
-	void *ra = __builtin_return_address(0);
-	return (!isPowerOfTwo(alignment) && !(__size%__alignment)) ? common_memalign(2, __alignment, __size, ra) : NULL;
+	return (!isPowerOfTwo(alignment) && !(__size%__alignment)) ? common_memalign(2, __alignment, __size) : NULL;
 }
 #endif
 
@@ -2419,9 +2306,8 @@ __attribute__((visibility("default"))) void *aligned_alloc(size_t __alignment, s
  */
 __attribute__((visibility("default"))) int posix_memalign(void **__memptr, size_t __alignment, size_t __size)
 {
-	void *ra = __builtin_return_address(0);
 	if ((sizeof(void*) <= alignment) && isPowerOfTwo(alignment)) {
-		*__memptr = common_memalign(3, __alignment, __size, ra);
+		*__memptr = common_memalign(3, __alignment, __size);
 	}
 	return (*__memptr)? 0 : EINVAL;
 	 
