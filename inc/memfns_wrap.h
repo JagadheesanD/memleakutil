@@ -1,3 +1,8 @@
+/*
+ * Copyright [2025] [Jagadheesan.D@gmail.com]
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #ifndef MEMFNS_WRAP_H
 #define MEMFNS_WRAP_H
 
@@ -20,11 +25,11 @@
  * between memleakutil and libmemfnswrap.so.
  * Increment only when there is a change in commands list.
  */
-#define MEMWRAP_MAJOR_VERSION "1"
+#define MEMWRAP_MAJOR_VERSION "2"
 #define MEMWRAP_MINOR_VERSION "0"
 
 /* MEMWRAP_COMMANDS_VERSION is 8 bit unsigned - shouldn't be greater than 255 */
-#define MEMWRAP_COMMANDS_VERSION 3
+#define MEMWRAP_COMMANDS_VERSION 4
 
 /* Below is part of heapwalk file header hp_walk_header, used to check compatibility. 
  * Increment in case msg_resp structure changes. It's 8 bit unsigned, max 255
@@ -61,6 +66,8 @@ typedef struct hp_header {
 #define MAINTAIN_SINGLE_LIST_FOR_CMD 0
 #endif
 
+//#define PROCESS_PAGEMAP_IN_LIB
+
 /* Static for internal testing */
 #ifndef SELF_TEST
 #define STATIC static
@@ -71,6 +78,13 @@ typedef struct hp_header {
 /* Data Structures */
 struct list;
 
+enum {
+	FLAGS_BIT0_GLIBC_ALLOCATED = 0,
+	FLAGS_BIT0_STATIC_BUFF_ALLOCATED = 1,
+	FLAGS_BIT1_MALLOC_CALLOC = 0,
+	FLAGS_BIT1_REALLOC = 2,
+	FLAGS_MEMALIGN // Let it get 1 more than last entry
+};
 /* 
  * Define LIST structure - Ensure gListInitIndex is aligned to void* and sync with LISTxfer structure 
  * NOTE: Don't pack this structure
@@ -79,6 +93,11 @@ typedef struct list
 {
 #if defined(PREPEND_LISTDATA)
 	unsigned int flags; /* First 2 bytes are magic number (for LSB/MSB), next 2 are real flag */
+	/*
+	 * Bit 0 --> 0 if allocated via glibc malloc, 1 if allocated before malloc is intercepted using static buffer
+	 * Bit 1 --> 0 malloc/calloc, 1 realloc
+	 * Bit 2 --> 1 memalign. Not needed, as we store alignment in the first half
+	 */
 #endif
 	void *ptr;
 	unsigned int size;
@@ -97,10 +116,19 @@ typedef struct list_xfer
 #ifdef PREPEND_LISTDATA
 	unsigned int flags; /* First 2 bytes are magic number (for LSB/MSB), next 2 are real flag */
 #endif
+	union {
 	void *ptr;
-	unsigned int size;
+	void *stack_addr_bottom;
+	};
+	unsigned long size;
+	union {
 	void *ra;
+	void *start_routine;
+	};
+	union {
 	pid_t tid;
+	pthread_t pthread_id;
+	};
 	time_t seconds;
 } LISTxfer;
 
@@ -114,6 +142,22 @@ struct HEATMAP
 	unsigned long long heapEntries;
 };
 
+struct pthread_info
+{
+	pthread_t pthread_id;
+	unsigned long size;
+	unsigned long stack_rss;
+	unsigned long stack_swap;
+	void *start_routine;
+	time_t time;
+};
+
+enum {
+	MMAP_NONE,
+	MMAP_ANON,
+	MMAP_ALL
+};
+
 typedef struct mmap
 {
 	unsigned long startAddress;
@@ -121,13 +165,57 @@ typedef struct mmap
 	unsigned long long heapEntries; /* Total size of heap entries within this mmap */
 	unsigned int size;
 	unsigned int rss;
+	unsigned int swapPss;
 	char entryName[256];
 	char perm[8];
-	struct HEATMAP heatmap[MAX_HEAT_MAP];
+	//union  After coalesing stack and heap maps might be combined.
+	//{
+		struct HEATMAP heatmap[MAX_HEAT_MAP];
+		struct pthread_info pthreadinfo;
+	//};
 	struct mmap *prev;
 	struct mmap *next;
-} MMAP_anon;
+} MMAP_info;
 #endif
+
+typedef struct pthread_list
+{
+        pthread_t pthread_id;
+	void *stack_addr_bottom;
+	unsigned long size;
+	void *start_routine;
+	time_t time;
+        struct pthread_list *next;
+} LIST_pthread;
+
+/*
+ * Bits 0-54  page frame number (PFN) if present
+ * Bits 0-4   swap type if swapped
+ * Bits 5-54  swap offset if swapped
+ * Bit  55    pte is soft-dirty (see Documentation/vm/soft-dirty.txt)
+ * Bit  56    page exclusively mapped (since 4.2)
+ * Bits 57-60 zero
+ * Bit  61    page is file-page or shared-anon (since 3.5)
+ * Bit  62    page swapped
+ * Bit  63    page present
+ */
+typedef enum {
+	PAGE_NOT_PRESENT = 0, // Bit 63, 62 not set. Note: If PFN may be 0 if process doesn't have CAP_SYS_ADMIN capability, but fine, we donot need.
+	PAGE_PRESENT = 1, // Bit 63 set
+	PAGE_SWAPPED = 2, // Bit 62 set
+	PAGE_ACCOUNTED = 3, // when above 2 bits are set, while identifying rss for allocations and accounting total heap rss size, this indicates this page was already taken into account
+	PAGE_FILEPAGE_SHAREDANON, // Not used
+	PAGE_DIRTY, // Not used
+}PAGEMAPSTAT;
+
+// TODO can be converted to binary search tree or red black tree for efficient traversing later on for determining rss value for each allocated entry
+typedef struct pagemap_list
+{
+	void *pageaddress; // Let's store pageaddress directly instead of pfn
+        //size_t pageindex; // vaddr / sysconf(_SC_PAGE_SIZE)
+	PAGEMAPSTAT pagestat;
+        struct pagemap_list *next;
+} LIST_pagemap;
 
 /* Message Queue Configuration */
 #define MQ_MSG_SIZE 128
@@ -140,12 +228,14 @@ typedef struct mq_msg_cmd
 typedef enum
 {
 	HEAPWALK_BASE = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21),
-	HEAPWALK_INCREMENT = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 1),
-	HEAPWALK_FULL = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 2),
-	HEAPWALK_MMAP_ENTRIES = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 3),
-	HEAPWALK_MARKALL = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 4),
-	HEAPWALK_RESET_MARKED = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 5),
-	HEAPWALK_MALLOC_STATS = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 6)
+	HEAPWALK_INCREMENT = (HEAPWALK_BASE | 1),
+	HEAPWALK_FULL = (HEAPWALK_BASE | 2),
+	HEAPWALK_LEAKCHECK = (HEAPWALK_BASE | 3),
+	HEAPWALK_MMAP_ENTRIES = (HEAPWALK_BASE | 4),
+	HEAPWALK_MARKALL = (HEAPWALK_BASE | 5),
+	HEAPWALK_RESET_MARKED = (HEAPWALK_BASE | 6),
+	HEAPWALK_MALLOC_STATS = (HEAPWALK_BASE | 7),
+	HEAPWALK_PTHREAD_INTERCEPT = (HEAPWALK_BASE | 8)
 	//HEAPWALK_EXIT = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 0)
 } mycmds;
 
@@ -164,6 +254,12 @@ typedef struct mq_msg_recv
 	char msg[MQ_MSG_SIZE];
 #else
 	unsigned int numItemOrInfo;
+/*
+ * TODO TODO TODO
+ * pread /proc/pid/pagemap for the virtual address and determine if 
+ * the address has associated physical address
+ *
+*/
 	unsigned long totalHeapSize;
 	unsigned long totalOverhead;
 	unsigned long heapPeakSize;
