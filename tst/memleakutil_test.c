@@ -374,9 +374,10 @@ void sendAndRecv(mqd_t mq, int cmd, LIST *resp, int listSize, int initVal)
 	}
 }
 
-void runAllocationTests(mqd_t mq)
+void runAllocationTests(mqd_t mq, char *realoc)
 {
-	resetList();
+	if (NULL == realoc)
+		resetList();
 	LIST resp[8];
 	int passed=0, failed=0;
 #ifdef PREPEND_LISTDATA
@@ -385,9 +386,22 @@ void runAllocationTests(mqd_t mq)
 	int listSize = 0;
 #endif
 	int testnum = 1;
-
-	char *z = malloc(27);
+	
 	dbg(PRINT_MUST, "\n**********************************\n%s: %d\n**********************************\n", __FUNCTION__, getpid());
+	if (realoc) {
+		char *r = realloc(realoc, 32);
+		PRINT("%d. [%d] Show %p, Ptr %p not between %p-%p,%s\n", testnum++,__LINE__, realoc, r, gInitialAlloc, gInitialAlloc+4*1024*1024, r);
+		if (!((r >= gInitialAlloc) && (r < (gInitialAlloc+4*1024*1024))) && !strcmp(r, "abcdefghijklmnopqrstuvwxyz")) {
+			PRINT("\tPass\n");
+			passed++;
+		}
+		else {
+			PRINT("\t%d: Fail %p,%p,%s\n", __LINE__, realoc, r, r);
+			failed++;
+		}
+		free(r);
+	}
+	char *z = malloc(27);
 	memset(z,0,27);
 	strcpy(z, "abcdefghijklmnopqrstuvwxyz");
 	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, z, 26, z);
@@ -1929,13 +1943,15 @@ void selftest()
 	int c;
 	//c = 1;
 	scanf("%d", &c);
+	char *allocInStatic = NULL;
 	if (1 == c) {
 		dbg(PRINT_ERROR, "Running tests for %d\n", getpid());
+		allocInStatic = malloc(27);
+		strcpy(allocInStatic, "abcdefghijklmnopqrstuvwxyz");
 		runListTests(mqrecv);
-		runAllocationTests(mqrecv);
+		runAllocationTests(mqrecv, NULL);
 	}
 
-	dbg(PRINT_INFO, "Before interpreting..\n");
 	load_libc_functions();
 
 	dbg(PRINT_MUST, "Run runListTests after libc load(1/0)\n");
@@ -1944,7 +1960,7 @@ void selftest()
 	if (1 == c) {
 		dbg(PRINT_ERROR, "Running tests for %d\n", getpid());
 		runListTests(mqrecv);
-		runAllocationTests(mqrecv);
+		runAllocationTests(mqrecv, allocInStatic);
 	}
 
 	
@@ -1991,7 +2007,7 @@ void selftest()
 					sem_wait(selftest_sem);
 					dbg(PRINT_MUST, "Running tests for %d\n", getpid());
 					runListTests(mqrecv);
-					runAllocationTests(mqrecv);
+					runAllocationTests(mqrecv, NULL);
 					dbg(PRINT_SEM, "%s: going to sem_post\n", __FUNCTION__);
 					sem_post(selftest_sem);
 				}
@@ -2006,7 +2022,7 @@ void selftest()
 						dbg(PRINT_SEM, "%s: semval [%d], going to sem_wait\n", __FUNCTION__, semval);
 						sem_wait(selftest_sem);
 						runListTests(mqrecv);
-						runAllocationTests(mqrecv);
+						runAllocationTests(mqrecv, NULL);
 						dbg(PRINT_SEM, "%s: going to sem_post\n", __FUNCTION__);
 						sem_post(selftest_sem);
 						sem_getvalue(selftest_sem, &semval);
@@ -2023,7 +2039,7 @@ void selftest()
 				int semval;
 				dbg(PRINT_MUST, "Running tests for %d\n", getpid());
 				runListTests(mqrecv);
-				runAllocationTests(mqrecv);
+				runAllocationTests(mqrecv, NULL);
 				dbg(PRINT_SEM, "%s: going to sem_post\n", __FUNCTION__);
 				sem_post(selftest_sem);
 				sem_getvalue(selftest_sem, &semval);

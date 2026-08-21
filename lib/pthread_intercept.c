@@ -50,6 +50,9 @@ void sendPthreadIntercept(mqd_t mqsend)
 						dbg(PRINT_ERROR, "pthread exited?? %ld: Stack %p Size %lu\n", tmp->pthread_id, tmp->stack_addr_bottom, tmp->size);
 						tmp->pthread_id = 0; // TODO 0 can be valid id
 					}
+					if (pthread_attr_destroy(&attr)) {
+						dbg(PRINT_ERROR, "%s: pthread_attr_destroy failed!! %d[%s]\n", __FUNCTION__, errno, strerror(errno));
+					}
 				}
 				else {
 					dbg(PRINT_ERROR, "pthread_attr_init failed!! %d[%s]\n", errno, strerror(errno));
@@ -148,6 +151,9 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attrs, void* (*start
 				dbg(PRINT_INFO, "pthread %ld: Stack %p Size %lu\n", *thread, stackaddr, stacksize);
 				//appendItemToPthreadList(*thread, stackaddr, stacksize, __builtin_return_address(0));
 				appendItemToPthreadList(*thread, stackaddr, stacksize, (void*)start_routine);
+			}
+			if (pthread_attr_destroy(&attr)) {
+				dbg(PRINT_ERROR, "pthread_attr_destroy failed!! %d[%s]\n", errno, strerror(errno));
 			}
 		}
 		else {

@@ -34,7 +34,7 @@ int cmd;
 int interactive;
 
 #define OFFLINE_STORE 1
-#define OFFLINE_PROCESS 2
+#define OFFLINE_ANALYZE 2
 int offlineAnalysis;
 
 
@@ -210,7 +210,7 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 	unsigned int prio;
 	struct timespec tm;
 	int msgsize = sizeof(msg_resp);
-	char heapwalkFile[32];
+	char heapwalkFile[128];
 	dbg(PRINT_INFO, "%s+\n", __FUNCTION__);
 #ifndef SELF_TEST1
 	sprintf(heapwalkFile, "%s/hp_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
@@ -281,7 +281,7 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 			{
 				if (!isSelfTest)
 				{
-					dbg(PRINT_MUST, "Done already walked\n");
+					dbg(PRINT_WALK, "Done already walked\n");
 				}
 				fclose(fpHWFull);
 				fpCurrent = fpHWalk;
@@ -290,14 +290,13 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 			{
 				if (!isSelfTest)
 				{
-					dbg(PRINT_MUST, "Done heapwalk\n");
+					dbg(PRINT_WALK, "Done heapwalk\n");
 				}
 				fclose(fpHWalk);
 				break;
 			}
 #else
 			if (HEAPWALK_INCREMENT != stcmd) { 
-					//|| (HEAPWALK_MMAP_ENTRIES == cmd))
 				sprintf(heapwalkFile, "%s/hpf_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
 				FILE *fpHWFull = fopen(heapwalkFile, "wb");
 				if (NULL == fpHWFull) {
@@ -764,22 +763,24 @@ void addThreadStatEntry(int tid, unsigned long size)
  */
 void printAndFreeThreadStat()
 {
-	threadStat *threadstat = threadStatHead;
-	PRINT("\nThreadwise Allocation total in bytes:\nTid:\t");
-	while (threadstat)
-	{
-		PRINT("%d\t", threadstat->tid);
-		threadstat = threadstat->next;
-	}
-	threadstat = threadStatHead;
-	PRINT("\nSize:\t");
-	while (threadstat)
-	{
-		PRINT("%llu\t", threadstat->allocationSize);
-
-		threadstat = threadstat->next;
-		free(threadStatHead);
-		threadStatHead = threadstat;
+	if (threadStatHead) {
+		threadStat *threadstat = threadStatHead;
+		PRINT("\nThreadwise Allocation total in bytes:\nTid:\t");
+		while (threadstat)
+		{
+			PRINT("%d\t", threadstat->tid);
+			threadstat = threadstat->next;
+		}
+		threadstat = threadStatHead;
+		PRINT("\nSize:\t");
+		while (threadstat)
+		{
+			PRINT("%llu\t", threadstat->allocationSize);
+        
+			threadstat = threadstat->next;
+			free(threadStatHead);
+			threadStatHead = threadstat;
+		}
 	}
 	PRINT("\n");
 }
@@ -805,7 +806,7 @@ unsigned getASLRStatus()
 		if(!fread(tmp, 1, 32, fp)) tmp[0] = '\0';
 		fclose(fp);
 	}
-	printf("\n%s: ASLR %d\n", __FUNCTION__, atoi(tmp));
+	dbg(PRINT_INFO, "\n%s: ASLR %d\n", __FUNCTION__, atoi(tmp));
 	return atoi(tmp);
 }
 
@@ -1297,7 +1298,6 @@ void displayGrouped()
 void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int *listIndex, MMAP_info *mmapIn, bool analyze)
 {
 	msg_resp msgresp;
-	int msgsize = sizeof(msg_resp);
 	char heapwalkFile[32];
 
 	dbg(PRINT_NOISE, "%s: cmd %d pid %d tid %d analyze %d\n", __FUNCTION__, cmd, pid, tid, analyze);
@@ -1337,7 +1337,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 		processHeapwalk(HEAPWALK_FULL, pid, tid, isSelfTest, resp, listIndex, mmapIn, analyze);
 
 
-		if (!offlineAnalysis || OFFLINE_PROCESS == offlineAnalysis) {	
+		if (!offlineAnalysis || OFFLINE_ANALYZE == offlineAnalysis) {	
 		/* Print results */
 		MMAP_info *tmpprn = mmapAnon;
 		if ('\0' != storedTime[0])
@@ -1454,24 +1454,25 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 				}
 			}
 			*/
+			int msgsize;
 			unsigned msgSeq = 0;
 			unsigned msgIndex;
 			unsigned long long threadAllocationOnly = 0;
 			do
 			{
 				msgsize = fread(&msgresp, 1, sizeof(msgresp), fpHWalk);
-				if (msgsize)
-				{
-					if (msgresp.numItemOrInfo)
-					{
+				if (msgsize) { // Check if atleast greater than a minimum possible?
+
+					if (msgresp.numItemOrInfo) {
+
 						msgIndex = 0;
-						if (!msgSeq)
-						{
-							if (!isSelfTest && (NULL == mmapIn))
-							{
+						if (!msgSeq) {
+
+							if (!isSelfTest && (NULL == mmapIn)) {
+
 								dbg(PRINT_WALK, "\n%s\n", (HEAPWALK_FULL == cmd) ? "Already walked:" : "New Allocations:");
-								//"%5u %18p %9lu %9u(%4s) %18p %8u %s%s\n"
-								dbg(PRINT_WALK, "  SNo  Pointer                  Size            Usage           RA         ThreadID  AllocationTime\n");
+								//"%5u %18p %9lu %9u(%3s) %18p %8u %s%s\n"
+								dbg(PRINT_WALK, "  SNo  Pointer                  Size           Usage           RA         ThreadID  AllocationTime\n");
 							}
 						}
 						int msgCount = msgresp.numItemOrInfo & 0xFFFFFFF;
@@ -1555,9 +1556,9 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 										}
 
 #ifdef PREPEND_LISTDATA
-										PRINT("%5u  %018lx  %9lu  %9u(%4s)  %18p  %8u  %s%s\n", 
+										PRINT("%5u  %018lx  %9lu  %9u(%3s)  %18p  %8u  %s%s\n", 
 												++msgSeq, (unsigned long)msgresp.xfer[msgIndex].ptr, msgresp.xfer[msgIndex].size, 
-												rssvalue|swapvalue, (rssvalue)?"RSS":(swapvalue)?"Swap":"Nil", msgresp.xfer[msgIndex].ra,
+												rssvalue|swapvalue, (rssvalue)?"Rss":(swapvalue)?"Swp":"Nil", msgresp.xfer[msgIndex].ra,
 											  	msgresp.xfer[msgIndex].tid, timef,
 											  	(0 == (msgresp.xfer[msgIndex].flags & 0xFF02)) ? 
 											  	"" : (msgresp.xfer[msgIndex].flags & FLAGS_BIT1_REALLOC) ? (" -Realloc") : (" -Memalign"));
@@ -1634,7 +1635,8 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 				}
 			} while (msgsize);
 
-			if (!isSelfTest && totalMsgs && (NULL == mmapIn))
+			//if (!isSelfTest && totalMsgs && (NULL == mmapIn)) // JAGA TODO remove totalMsgs...try full walk, full walk
+			if (!isSelfTest && totalMsgs && (NULL == mmapIn) && (HEAPWALK_MMAP_ENTRIES != baseCmd)) // JAGA TODO remove totalMsgs...try full walk, full walk
 			{
 				if (tid && threadAllocationOnly)
 				{
@@ -1652,18 +1654,22 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 					PRINT("PeakTotalHeapSize             :%6lu KB (%lu bytes)\n", msgresp.heapPeakSize/1024, msgresp.heapPeakSize);
 					PRINT("  at %sTool Overhead                 :%6lu KB (%lu bytes)\n\n",
 							ctime(&msgresp.heapPeakedAt), msgresp.totalOverhead/1024, msgresp.totalOverhead);
+					// TODO for DEBUG to have a breakpoint in gdb
+					if (msgresp.totalOverhead > msgresp.totalHeapSize) {
+						printf("Something went wrong..\n");
+					}
 				}
 				else {
 					PRINT("\n");
 				}
-				if (interactive) sleep(2);
-				// dbg(PRINT_MUST, "Received Msgs %u sequence %u\n", totalMsgs, msgSeq);
+				if (interactive && (HEAPWALK_LEAKCHECK != baseCmd)) sleep(2);
+				dbg(PRINT_INFO, "Received Msgs %u sequence %u\n", totalMsgs, msgSeq);
 			}
 			else
 			{
 				if (!isSelfTest && (NULL == mmapIn))
 				{
-					dbg(PRINT_MUST, "%s\n", (HEAPWALK_FULL == cmd) ? "Already walked: None" : "No New Allocations");
+					dbg(PRINT_WALK, "%s\n", (HEAPWALK_FULL == cmd) ? "Already walked: None" : "No New Allocations");
 					if (HEAPWALK_INCREMENT == cmd) {
 						PRINT("\n");
 						if (interactive) sleep(2);
@@ -1675,10 +1681,6 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 
 		if (HEAPWALK_FULL == cmd)
 		{
-			if (!totalMsgs) {
-				baseCmd = HEAPWALK_INCREMENT;
-			}
-
 			processHeapwalk(HEAPWALK_INCREMENT, pid, tid, isSelfTest, resp, listIndex, mmapIn, analyze);
 
 			if (HEAPWALK_LEAKCHECK == baseCmd) {
@@ -1697,11 +1699,13 @@ void performOfflineAnalysis(int pid) //, char *fileSuffix)
 			dbg(PRINT_MUST, "Error reading Pagemap...physical size may not be available\n");
 			sleep(3);	
 		}
-		mappthreadStack(pid);
+		//if (HEAPWALK_MMAP_ENTRIES == baseCmd) {
+			mappthreadStack(pid);
+		//}
 		totalrsspages = totalswappages = 0;
-		baseCmd = cmd|HEAPWALK_BASE;
+		baseCmd = cmd | HEAPWALK_BASE;
 		if (HEAPWALK_LEAKCHECK == baseCmd) {
-			processHeapwalk(HEAPWALK_FULL | HEAPWALK_BASE, pid, tid, 0, NULL, NULL, NULL, 1);
+			processHeapwalk(HEAPWALK_FULL, pid, tid, 0, NULL, NULL, NULL, 1);
 		}
 		else {
 			processHeapwalk(cmd | HEAPWALK_BASE, pid, tid, 0, NULL, NULL, NULL, 1);
@@ -1735,7 +1739,14 @@ void printHelp(char *argv)
 	PRINT("\t       [-s, --suffix <suffix>, example first/2nd/entry/..]\n");
 
 	PRINT("\n\tmemleakutil - Args to analyze saved Offline reports\n");
-	PRINT("\t       -a, --analyze <pid>\n");
+	PRINT("\t       -a, --analyze\n");
+	PRINT("\t       -p, --pid <pid>\n");
+	PRINT("\t       [-t,  --tid <threadid>, default 0 (all threads), optional parameter]\n");
+	PRINT("\t       -c,  --cmd <1/2/3/4/5>\n");
+	PRINT("\t                   1 - Heapwalk New entries that were not walked earlier\n");
+	PRINT("\t                   2 - Heapwalk all\n");
+	PRINT("\t                   3 - Group Probable leaks (experimental)\n");
+	PRINT("\t                   4 - mmap details of anon, stack, heap, thread stack if available\n");
 	PRINT("\t       [-d, --dir <dir>, default /tmp, optional parameter]\n");
 	PRINT("\t       [-s, --suffix <suffix>, example first/2nd/entry/..]\n");
 
@@ -1760,8 +1771,9 @@ void printHelpE(int argc, char *argv[])
 void processArgs(int argc, char *argv[])
 {
 	for (int i=1; i < argc; i++) {
-		if (!strcmp(argv[i], "--output") || !strcmp(argv[i], "-o")) {
+		if (!strcmp(argv[i], "--offline") || !strcmp(argv[i], "-o")) {
 			offlineAnalysis = OFFLINE_STORE;
+			cmd = 4;
 			continue;
 		}
 		if (!strcmp(argv[i], "--interactive") || !strcmp(argv[i], "-i")) {
@@ -1807,13 +1819,8 @@ void processArgs(int argc, char *argv[])
 			printHelpE(argc, argv);
 		}
 		if (!strcmp(argv[i], "--analyze") || !strcmp(argv[i], "-a")) {
-			if (i+1 < argc) {
-				i++;
-				offlineAnalysis = OFFLINE_PROCESS;
-				pid = atoi(argv[i]);
+				offlineAnalysis = OFFLINE_ANALYZE;
 				continue;
-			}
-			printHelpE(argc, argv);
 		}
 		if (!strcmp(argv[i], "--suffix") || !strcmp(argv[i], "-s")) {
 			if (i+1 < argc) {
@@ -1856,6 +1863,8 @@ void processArgs(int argc, char *argv[])
 			printHelp(argv[0]);
 		}
 	}
+
+	// Sanitize the args
 	if (interactive) {
 		if (offlineAnalysis || pid || cmd || tid) {
 			printHelpE(argc, argv);
@@ -1876,10 +1885,20 @@ void processArgs(int argc, char *argv[])
 			}
 			if (OFFLINE_STORE == offlineAnalysis && cmd) {
 				PRINT("Ignoring cmd for offline report save...\n");
-				cmd = 3;
+				cmd = 4;
+			}
+			if (OFFLINE_ANALYZE == offlineAnalysis && 4 < cmd) {
+				PRINT("Invalid cmd for offline report analyze...\n");
+				printHelpE(argc, argv);
 			}
 		}
 	}
+}
+
+void flushInputStream()
+{
+	char c;
+	while ('\n' != (c = getchar()) && EOF != c);
 }
 
 int main(int argc, char *argv[])
@@ -1938,7 +1957,7 @@ int main(int argc, char *argv[])
 	if (NULL == rwPath) {
 		rwPath = "/tmp/";
 	}
-	if (OFFLINE_PROCESS == offlineAnalysis) {
+	if (OFFLINE_ANALYZE == offlineAnalysis) {
 		performOfflineAnalysis(pid);
 		exit(0);
 	}
@@ -1958,7 +1977,10 @@ int main(int argc, char *argv[])
 		else {
 			msgcmd.pid = -1;
 			PRINT("\nEnter Process PID to send to %s: ", "(-1 to exit)");
-			if (!scanf("%d", &msgcmd.pid)) continue; 
+			if (!scanf("%d", &msgcmd.pid)) {
+				flushInputStream();
+				continue; 
+			}
 		}
 		if (-1 == msgcmd.pid)
 			break;
@@ -1986,7 +2008,11 @@ int main(int argc, char *argv[])
 				PRINT("7. Call malloc_stats\n   %s\n", "-Calls malloc_stats API that prints the details in stderr");
 				PRINT("0. Return\n   %s\n", "-Return to explore different Process");
 				PRINT("Enter cmd to send: ");
-				if(!scanf("%d", &msgcmd.cmd)) continue;
+				if(!scanf("%d", &msgcmd.cmd)) {
+					printf("Flushing input stream..\n");
+					flushInputStream();
+					continue;
+				}
 			}
 			msgcmd.cmd |= HEAPWALK_BASE;
 #ifdef OPTIMIZE_MQ_TRANSFER
@@ -2014,6 +2040,7 @@ int main(int argc, char *argv[])
 					msgcmd.cmd = HEAPWALK_FULL;
 					pid = msgcmd.pid;
 				}
+				// break intentionally left
 			case HEAPWALK_FULL:
 			{
 #ifdef OPTIMIZE_MQ_TRANSFER
@@ -2026,7 +2053,10 @@ int main(int argc, char *argv[])
 				{
 					// TODO Optimize to get only entries for this thread
 					PRINT("Enter threadid (0 for all):");
-					if(!scanf("%d", &threadid)) continue;
+					if(!scanf("%d", &threadid)) {
+						flushInputStream();
+						continue;
+					}
 					if (threadid) {
 						PRINT("Walking only for thread %d\n", threadid);
 					}
@@ -2039,16 +2069,34 @@ int main(int argc, char *argv[])
 				{
 #ifdef OPTIMIZE_MQ_TRANSFER
 					if (!storeHeapwalk(mqrecv, msgcmd.cmd, msgcmd.pid, 0)) {
-						if (HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
+						if (OFFLINE_STORE == offlineAnalysis || HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
+							dbg(PRINT_ERROR, "%s: Getting pthread create intercepts cmd 0x%X on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
+							printf("Getting pthread create intercepts\n");
 							getStackIntercepts(mqrecv, msgcmd.pid);
 						}
 						readAndStoreSmaps(msgcmd.pid, 1);
 						storeAnonHeapStackPagemap(msgcmd.pid);
-						mappthreadStack(msgcmd.pid);
+						if (OFFLINE_STORE == offlineAnalysis || HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
+							printf("Mapping pthread create stack intercepts\n");
+							mappthreadStack(msgcmd.pid);
+						}
 						totalrsspages = totalswappages = 0;
 						processHeapwalk(msgcmd.cmd, msgcmd.pid, threadid, 0, NULL, NULL, NULL, 0);
 						freeMMapList();
 						freePagemapDataStruct();
+						if (!offlineAnalysis) {
+							char filename[128];
+							sprintf(filename, "%s/smaps_%d%s.txt", rwPath, pid, fileSuffix?fileSuffix:"");
+							unlink(filename);
+							sprintf(filename, "%s/hps_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
+							unlink(filename);
+							sprintf(filename, "%s/hpp_%d%s.txt", rwPath, pid, fileSuffix?fileSuffix:"");
+							unlink(filename);
+							sprintf(filename, "%s/hpf_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
+							unlink(filename);
+							sprintf(filename, "%s/hp_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
+							unlink(filename);
+						}
 					} else {
 						dbg(PRINT_ERROR, "storeHeapwalk failed\n");
 					}
@@ -2073,9 +2121,9 @@ int main(int argc, char *argv[])
 						if (0 < msgsize && (-1 == msgresp.seq))
 						{
 							dbg(PRINT_MUST, "End of List\n");
-#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
+	#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
 							dbg(PRINT_MUST, "%s\n", msgresp.msg);
-#endif
+	#endif
 							break;
 						}
 						if (!strcmp(msgresp.msg, "No new allocations") ||

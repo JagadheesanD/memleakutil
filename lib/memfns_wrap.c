@@ -201,11 +201,6 @@ static void *thread_start(void *arg)
 			dbg(PRINT_ERROR, "Error, mq_receive: %s.\n", strerror(errno));
 		}
 	}
-	else if (1 == gMemInitialized)
-	{ 
-		/* Mark all previous allocations, since ths process is forked */
-		// heapwalkMarkall();
-	}
 
 	while (1)
 	{
@@ -213,93 +208,74 @@ static void *thread_start(void *arg)
 		if (msgsize >= 0)
 		{
 			dbg(PRINT_MSGQ, "Received cmd %d, size %d\n", msgcmd.cmd, msgsize);
-			
-			if (HEAPWALK_INCREMENT == msgcmd.cmd)
+
+			switch (msgcmd.cmd)
 			{
-				mqsend = mq_open("/mq_util", O_WRONLY);
-				if (mqsend < 0) {
-					dbg(PRINT_ERROR, "Error, cannot open mq_util queue: %s.\n", strerror(errno));
-				}
-				else
-				{
-					dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
+				case HEAPWALK_INCREMENT:
+				case HEAPWALK_FULL:
+				case HEAPWALK_LEAKCHECK:
 #ifdef OPTIMIZE_MQ_TRANSFER
-					heapwalk(mqsend, 0, NULL);
-#else
-					msg_resp msgresp;
-					heapwalk(mqsend);
-					msgresp.seq = -1;
-#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
-					snprintf(msgresp.msg, MQ_MSG_SIZE, "TotalHeapSize %lu Bytes + Tool Overhead %lu. Peak %lu at %u", 
-							totalHeapSize, totalOverhead, heapPeakSize, heapPeakedAt);
+				case HEAPWALK_MMAP_ENTRIES:
 #endif
-					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
-#endif
-					dbg(PRINT_MSGQ, "%s: sent on mq %d\n", __FUNCTION__, mqsend);
-					mq_close(mqsend);
-				}
-			}
-			else if ((HEAPWALK_FULL == msgcmd.cmd) || (HEAPWALK_LEAKCHECK == msgcmd.cmd))
-			{
-				mqsend = mq_open("/mq_util", O_WRONLY);
-				if (mqsend < 0) {
-					dbg(PRINT_ERROR, "Error, cannot open mq_util queue: %s.\n", strerror(errno));
-				}
-				else
-				{
-					dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
+					mqsend = mq_open("/mq_util", O_WRONLY);
+					if (0 <= mqsend) {
+						dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
+						dbg(PRINT_ERROR, "%s: msgcmd 0x%X sending on mq %d\n", __FUNCTION__, msgcmd.cmd, mqsend);
 #ifdef OPTIMIZE_MQ_TRANSFER
-					heapwalk(mqsend, 1, NULL);
+						heapwalk(mqsend, ~HEAPWALK_INCREMENT&msgcmd.cmd, NULL);
+						if (HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
+							//dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
+							dbg(PRINT_ERROR, "%s: cmd: 0x%x sending pthread intercepts on mq %d\n", __FUNCTION__, msgcmd.cmd, mqsend);
+							sndPthreadIntercepts(mqsend);
+						}
 #else
-					msg_resp msgresp;
-					heapwalk_full(mqsend);
-					msgresp.seq = -1;
-#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
-					snprintf(msgresp.msg, MQ_MSG_SIZE, "TotalHeapSize %lu Bytes + Tool Overhead %lu. Peak %lu at %u", 
-							totalHeapSize, totalOverhead, heapPeakSize, heapPeakedAt);
+						msg_resp msgresp;
+						if (HEAPWALK_INCREMENT == msgcmd.cmd)
+							heapwalk(mqsend);
+						else
+							heapwalk_full(mqsend);
+						msgresp.seq = -1;
+	#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
+						snprintf(msgresp.msg, MQ_MSG_SIZE, "TotalHeapSize %lu Bytes + Tool Overhead %lu. Peak %lu at %u", 
+								totalHeapSize, totalOverhead, heapPeakSize, heapPeakedAt);
+	#endif
+						mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 #endif
-					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
-#endif
-					dbg(PRINT_MSGQ, "%s: sent on mq %d\n", __FUNCTION__, mqsend);
-					mq_close(mqsend);
-				}
+						dbg(PRINT_MSGQ, "%s: sent on mq %d\n", __FUNCTION__, mqsend);
+						mq_close(mqsend);
+					}
+					else {
+						dbg(PRINT_ERROR, "Error, cannot open mq_util queue: %s.\n", strerror(errno));
+					}
+					break;
+				case HEAPWALK_PTHREAD_INTERCEPT: // Not used, atleast in version 4
+					mqsend = mq_open("/mq_util", O_WRONLY);
+					if (0 <= mqsend) {
+						dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
+						sndPthreadIntercepts(mqsend);
+						mq_close(mqsend);
+					}
+					else {
+						dbg(PRINT_ERROR, "Error, cannot open mq_util queue: %s.\n", strerror(errno));
+					}
+					break;
+				case HEAPWALK_MARKALL:
+					dbg(PRINT_MSGQ, "Calling heapwalkMarkall(). cmd %d\n", msgcmd.cmd);
+					heapwalkMarkall();
+					break;
+				case HEAPWALK_RESET_MARKED:
+					dbg(PRINT_MSGQ, "Calling heapwalkReset(). cmd %d\n", msgcmd.cmd);
+					heapwalkReset();
+					break;
+				case HEAPWALK_MALLOC_STATS:
+					dbg(PRINT_MSGQ, "Calling malloc_stats(). cmd %d\n", msgcmd.cmd);
+					malloc_stats();
+					PRINT("\n");
+					break;
+				default:
+					dbg(PRINT_ERROR, "Invalid cmd 0x%x received\n", msgcmd.cmd);
+					break;
 			}
-			else if (HEAPWALK_MMAP_ENTRIES == msgcmd.cmd)
-			{
-				mqsend = mq_open("/mq_util", O_WRONLY);
-				if (mqsend < 0) {
-					dbg(PRINT_ERROR, "Error, cannot open mq_util queue: %s.\n", strerror(errno));
-				}
-				else
-				{
-					dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
-#ifdef OPTIMIZE_MQ_TRANSFER
-					heapwalk(mqsend, 1, NULL);
-					sndPthreadIntercepts(mqsend);
-#else
-					dbg(PRINT_MUST, "HEAPWALK_MMAP_ENTRIES supported only with OPTIMIZE_MQ_TRANSFER\n");
-#endif
-					mq_close(mqsend);
-				}
-			}
-			else if (HEAPWALK_MARKALL == msgcmd.cmd)
-			{
-				dbg(PRINT_MSGQ, "Calling heapwalkMarkall(). cmd %d\n", msgcmd.cmd);
-				heapwalkMarkall();
-			}
-			else if (HEAPWALK_RESET_MARKED == msgcmd.cmd)
-			{
-				dbg(PRINT_MSGQ, "Calling heapwalkReset(). cmd %d\n", msgcmd.cmd);
-				heapwalkReset();
-			}
-			else if (HEAPWALK_MALLOC_STATS == msgcmd.cmd)
-			{
-				dbg(PRINT_MSGQ, "Calling malloc_stats(). cmd %d\n", msgcmd.cmd);
-				malloc_stats();
-				PRINT("\n");
-			}
-			else
-				dbg(PRINT_ERROR, "Invalid cmd 0x%x received\n", msgcmd.cmd);
 		}
 		else
 		{
@@ -784,19 +760,19 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 					if (tmp->next)
 					{
 						dbg(PRINT_INFO, "%s: sending %d walked items..more to go\n", __FUNCTION__, msgresp.numItemOrInfo);
-							msgresp.numItemOrInfo |= HEAPWALK_ITEM_CONTN;
+						msgresp.numItemOrInfo |= HEAPWALK_ITEM_CONTN;
 					}
 					else
 					{ /* Set the end of list */
 						dbg(PRINT_INFO, "%s: sending %d walked items..finished\n", __FUNCTION__, msgresp.numItemOrInfo);
 						msgresp.numItemOrInfo |= HEAPWALK_ENDOF_LIST;
-#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
-						msgresp.totalHeapSize = totalHeapSize;
-						msgresp.totalOverhead = totalOverhead;
-						msgresp.heapPeakSize = heapPeakSize;
-						msgresp.heapPeakedAt = heapPeakedAt;
-#endif
 					}
+#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
+					msgresp.totalHeapSize = totalHeapSize;
+					msgresp.totalOverhead = totalOverhead;
+					msgresp.heapPeakSize = heapPeakSize;
+					msgresp.heapPeakedAt = heapPeakedAt;
+#endif
 					if (NULL == fname) {
 						mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 					}
@@ -889,7 +865,7 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 			msgresp.xfer[msgresp.numItemOrInfo].seconds = tmp->seconds;
 			msgresp.numItemOrInfo++;
 			hpwHdr.totalEntries++;
-				dbg(PRINT_INFO, "%s: Processed %d unwalked items for sending\n", __FUNCTION__, msgresp.numItemOrInfo);
+			dbg(PRINT_INFO, "%s: Processed %d unwalked items for sending\n", __FUNCTION__, msgresp.numItemOrInfo);
 			if (MAX_MSG_XFER <= msgresp.numItemOrInfo)
 			{
 				dbg(PRINT_INFO, "%s: Going to send %d unwalked items\n", __FUNCTION__, msgresp.numItemOrInfo);
@@ -900,13 +876,13 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 				else
 				{ // Set End of list
 					msgresp.numItemOrInfo |= HEAPWALK_ENDOF_LIST;
-#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
-					msgresp.totalHeapSize = totalHeapSize;
-					msgresp.totalOverhead = totalOverhead;
-					msgresp.heapPeakSize = heapPeakSize;
-					msgresp.heapPeakedAt = heapPeakedAt;
-#endif
 				}
+#if defined(PREPEND_LISTDATA) && defined(ENABLE_STATISTICS)
+				msgresp.totalHeapSize = totalHeapSize;
+				msgresp.totalOverhead = totalOverhead;
+				msgresp.heapPeakSize = heapPeakSize;
+				msgresp.heapPeakedAt = heapPeakedAt;
+#endif
 				dbg(PRINT_INFO, "%s: Sending %d unwalked items\n", __FUNCTION__, (msgresp.numItemOrInfo&(~(0x20000000))));
 				if (NULL == fname) {
 					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
@@ -2096,25 +2072,86 @@ __attribute__((visibility("default"))) void *realloc(void *curPtr, size_t newSiz
 	void *np;
 	void *ra = __builtin_return_address(0);
 
-	/* check curPtr, it can be null, or pointer allocated earlier via malloc or calloc */
-	LIST *item; // = (curPtr) ? getItem(curPtr) : NULL;
-	unsigned int size = 0;
+#ifdef PREPEND_LISTDATA
+	LIST *item;
+	unsigned int oldsize;
 
 	if (NULL != curPtr)
 	{
 		item = getItem(curPtr);
-#ifdef PREPEND_LISTDATA
-		void *del = deleteItemFromList(curPtr); // If there was issue in list, then just try to leave it to libc to flag if the pointer is corrupt
-	     	if (!newSize ) {
-			if (NULL != del) {
-				return libc_realloc_fnptr((void *)del, newSize);
+	       	if (NULL != deleteItemFromList(curPtr)) { // This is more likely
+			if (newSize) {
+				curPtr = item;
+				oldsize = 0;
 			}
-			return NULL;
+			else {
+				return libc_realloc_fnptr((void *)item, newSize);
+			}
 		}
-		/* Increase this for realloc to copy the entire previously allocated buffer into newly allocated pointer */
-		// Need to check if item is non-null?...TODO
-		size = item->size + sizeof(LIST); 
+		else {
+			if (newSize) {
+				// The previous allocation came from static buffer. So note down the size to copy back the contents
+				oldsize = item->size + sizeof(LIST);
+				curPtr = NULL;
+			}
+			else {
+				return NULL;
+			}
+		}
+	}
+	else {
+		oldsize = 0;
+		item = NULL; // Not needed to set, but to make compiler happy since it's used below
+	}
+
+	newSize += sizeof(LIST);
+	if (0 < gMemInitialized) {
+		np = libc_realloc_fnptr(curPtr, newSize);
+		//if (item && (item->flags & 0x1)) 
+		if (oldsize) {
+			memcpy(np, item, oldsize);
+		}
+	}
+	else {
+		mapInitialMemory();
+#ifndef SELF_TEST
+		if (-1 == gMemInitialized)
+		{
+			load_libc_functions(); /* Request to static buffer, Try once */
+		}
+#endif
+		pthread_mutex_lock(&lock);
+		np = (void *)&gInitialAlloc[gInitIndex];
+		if (newSize % sizeof(void *))
+		{
+			gInitIndex += (newSize + sizeof(void *) - (newSize % sizeof(void *)));
+		}
+		else
+		{
+			gInitIndex += newSize;
+		}
+		pthread_mutex_unlock(&lock);
+		if (G_INITIAL_ALLOC_SIZE <= gInitIndex)
+		{
+			fwrite(G_INITIAL_ALLOC_SIZE_ERROR, sizeof(G_INITIAL_ALLOC_SIZE_ERROR), 1, stderr);
+			abort();
+		}
+		//if (item && (item->flags & 0x1)) 
+		if (oldsize) {
+			memcpy(np, item, oldsize); // FIXME: see if size needs to be checked..
+		}
+		appendItemToList((char *)np + sizeof(LIST), newSize - sizeof(LIST), FLAGS_BIT0_STATIC_BUFF_ALLOCATED|FLAGS_BIT1_REALLOC, ra);
+		return (void *)((char *)np + sizeof(LIST));
+	}
+	appendItemToList((char *)np + sizeof(LIST), newSize - sizeof(LIST), FLAGS_BIT0_GLIBC_ALLOCATED|FLAGS_BIT1_REALLOC, ra);
+	return (void *)((char *)np + sizeof(LIST));
 #else
+	/* check curPtr, it can be null, or pointer allocated earlier via malloc or calloc */
+	LIST *item = (curPtr) ? getItem(curPtr) : NULL;
+	unsigned int size = 0;
+
+	if (NULL != curPtr)
+	{
 #if MAINTAIN_SINGLE_LIST
 		if (deleteItemFromList(&hpfmemhead, &hpfmemtail, curPtr) && (0 < gMemInitialized))
 #else
@@ -2124,33 +2161,24 @@ __attribute__((visibility("default"))) void *realloc(void *curPtr, size_t newSiz
 			dbg(PRINT_ERROR, "%s: Delete failed for %p, probably a. double free? b. bug in list? c. corrupt?\n",
 				__FUNCTION__, curPtr);
 		}
-		else if (!newSize) {
-			// Rare, so let's resort to old way of checking if this pointer was allocated from glibc pool and not from static buffer
-			if ((0 < gMemInitialized) && ((gInitialAlloc > (char *)item) || ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)item)))
-			{
-				libc_free_fnptr(curPtr);
-			}
-			return NULL;
-		}
 		else
 		{
-			size = item->size;
+			size += item->size;
 		}
-#endif
-	}
-	else {
-		item = NULL;
-		// TODO check for newSize is 0??
 	}
 
-#ifdef PREPEND_LISTDATA
-	newSize += sizeof(LIST);
-	curPtr = (void *)item;
-#endif
+	if (!newSize && curPtr)
+	{
+		if ((0 < gMemInitialized) && ((gInitialAlloc > (char *)item) || ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)item)))
+		{
+			libc_free_fnptr(curPtr);
+		}
+		return NULL;
+	}
 
 	// TODO: To be moved to general heap if initialized, see if curPtr allocated from gInitialAlloc..
-	if ( (item && !(item->flags | FLAGS_BIT0_GLIBC_ALLOCATED)) || ((NULL == curPtr) && (0 < gMemInitialized)) )
-				//(gInitialAlloc > (char *)curPtr) || ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)curPtr)))
+	if ((0 < gMemInitialized) && ((NULL == curPtr) || (gInitialAlloc > (char *)curPtr) ||
+								  ((char *)(gInitialAlloc + G_INITIAL_ALLOC_SIZE) < (char *)curPtr)))
 	{
 		/* During the previous allocation, since the start of the buffer was used for LIST, after reallocation, realloc is going to copy the whole
 		to the new buffer. Remember, we are going to give the newly allocated pointer + LIST size to the application.
@@ -2186,15 +2214,7 @@ __attribute__((visibility("default"))) void *realloc(void *curPtr, size_t newSiz
 		{
 			memcpy(np, curPtr, size); // FIXME: see if size needs to be checked..
 		}
-#ifdef PREPEND_LISTDATA
-		appendItemToList((char *)np + sizeof(LIST), newSize - sizeof(LIST), FLAGS_BIT0_STATIC_BUFF_ALLOCATED|FLAGS_BIT1_REALLOC, ra);
-		return (void *)((char *)np + sizeof(LIST));
-#endif
 	}
-#ifdef PREPEND_LISTDATA
-	appendItemToList((char *)np + sizeof(LIST), newSize - sizeof(LIST), FLAGS_BIT0_GLIBC_ALLOCATED|FLAGS_BIT1_REALLOC, ra);
-	return (void *)((char *)np + sizeof(LIST));
-#else
 	// prependItemToList(np, totalsize, nmem, ra);
 	appendItemToList(np, newSize, ra);
 	return np;

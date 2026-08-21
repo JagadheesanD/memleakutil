@@ -235,7 +235,7 @@ typedef enum
 	HEAPWALK_MARKALL = (HEAPWALK_BASE | 5),
 	HEAPWALK_RESET_MARKED = (HEAPWALK_BASE | 6),
 	HEAPWALK_MALLOC_STATS = (HEAPWALK_BASE | 7),
-	HEAPWALK_PTHREAD_INTERCEPT = (HEAPWALK_BASE | 8)
+	HEAPWALK_PTHREAD_INTERCEPT = (HEAPWALK_BASE | 8) // Internal cmd to get pthread create intercepts
 	//HEAPWALK_EXIT = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 0)
 } mycmds;
 
@@ -254,12 +254,6 @@ typedef struct mq_msg_recv
 	char msg[MQ_MSG_SIZE];
 #else
 	unsigned int numItemOrInfo;
-/*
- * TODO TODO TODO
- * pread /proc/pid/pagemap for the virtual address and determine if 
- * the address has associated physical address
- *
-*/
 	unsigned long totalHeapSize;
 	unsigned long totalOverhead;
 	unsigned long heapPeakSize;
