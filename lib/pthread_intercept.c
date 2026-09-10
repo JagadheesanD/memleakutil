@@ -74,8 +74,8 @@ void sendPthreadIntercept(mqd_t mqsend)
 				}
 				else {
 					msgresp.numItemOrInfo |= HEAPWALK_ENDOF_LIST;
-					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp),0);
 				}
+				mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp),0);
 				msgresp.numItemOrInfo = HEAPWALK_EMPTY;
 			}
 			tmp = tmp->next;
@@ -178,6 +178,6 @@ void intercept_pthread_create() {
 		        pthread_mutex_init(&pthreadlock, &mutexattr);
 		}
 	}
-	printf("At intercept_pthread_create, %p\n", pthread_create_fnptr);
+	//printf("At intercept_pthread_create, %p\n", pthread_create_fnptr);
 }
 

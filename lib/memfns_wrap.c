@@ -104,6 +104,192 @@ void dbg(int level, const char *fmt, ...)
 }
 #endif
 
+#if defined(INTERCEPT_MMAP)
+typedef void *(*mmap_type) (void *, size_t, int, int, int, off_t);
+//typedef void *(*mmap64_type) (void *, size_t, int, int, int, off64_t);
+typedef int (*munmap_type) (void *, size_t);
+//typedef void *(*mremap_type) (void *, size_t, size_t, int, ...);
+
+LIST_mmap_wrap *mmap_wrap_head;
+
+mmap_type mmap_fnptr = NULL;
+//mmap64 might be static function in most standard libraries like glibc
+//mmap64_type mmap64_fnptr = NULL;
+munmap_type munmap_fnptr = NULL;
+//mremap might be static function in some standard library, like glibc
+//mremap_type mremap_fnptr = NULL;
+
+void mmap_wrapper()
+{
+	static int initialized = 0;
+	if (!initialized) {
+		mmap_fnptr = dlsym(RTLD_NEXT, "__mmap");
+		//mmap64_fnptr = dlsym(RTLD_NEXT, "__mmap64"); // Not a weak/global function
+		munmap_fnptr = dlsym(RTLD_NEXT, "__munmap");
+		//mremap_fnptr = dlsym(RTLD_NEXT, "__mremap");
+				
+		if ((NULL != mmap_fnptr) && (NULL != munmap_fnptr)) // (NULL != mmap64_fnptr) && (NULL != mremap_fnptr) &&
+		{
+			initialized = 1;
+		}
+		else {
+			fwrite("mmap_wrapper, failed\n", sizeof("mmap_wrapper, failed\n"), 1, stderr);
+			exit(1);
+		}
+	}
+}
+void addToMMAPlist(void *start, size_t len, void *ra)
+{
+	LIST_mmap_wrap *tmp = mmap_wrap_head, *prev = NULL;
+
+	// Find a deleted (start_addr is null)  entry for re-using it.
+	// At the end of this loop, prev will point to tail if there 
+	// is no free slot, so that newly allocated can be added at the end
+	while(tmp) {
+		if (!tmp->start_addr) {
+			prev = NULL;
+			break;
+		}
+		prev = tmp;
+		tmp = tmp->next;
+	}
+	if (!tmp) {
+		pthread_mutex_lock(&lock);
+		tmp = (LIST_mmap_wrap*)&gInitialAlloc[gInitIndex];
+		gInitIndex += sizeof(LIST_mmap_wrap);
+		pthread_mutex_unlock(&lock);
+		if (G_INITIAL_ALLOC_SIZE <= gInitIndex)
+		{
+			fwrite(G_INITIAL_ALLOC_SIZE_ERROR, sizeof(G_INITIAL_ALLOC_SIZE_ERROR), 1, stderr);
+			abort();
+		}
+		tmp->next = NULL;
+	}
+	tmp->start_addr = start;
+	tmp->end_addr = start + len;
+	tmp->ra = ra;
+	tmp->time = time(0);
+
+	if (prev) {
+		prev->next = tmp;
+	}
+	else {
+		if (NULL == mmap_wrap_head) {
+			mmap_wrap_head = tmp;
+		}
+	}
+	tmp = mmap_wrap_head;
+	while (tmp) { PRINT("\n%p-%p", tmp->start_addr, tmp->end_addr);tmp = tmp->next;}
+	dbg(PRINT_MUST, "\n");
+}
+
+void remFromMMAPlist(void *start, size_t len)
+{
+	LIST_mmap_wrap *tmp = mmap_wrap_head;
+
+	while(tmp) {
+		if (start == tmp->start_addr) {
+			tmp->start_addr = NULL;
+			break;
+		}
+		tmp = tmp->next;
+	}
+	if (!tmp) {
+		dbg(PRINT_ERROR, "munmap list rem failed 0x%p, size %ld list head 0x%p\n", start, len, mmap_wrap_head);
+	}
+	tmp = mmap_wrap_head;
+	while (tmp) { PRINT("\n%p-%p", tmp->start_addr, tmp->end_addr);tmp = tmp->next;}
+	dbg(PRINT_MUST, "\n");
+}
+
+__attribute__((visibility("default"))) void *mmap(void *start, size_t len, int prot, int flags, int fd, off_t offset)
+{
+	void *ra = __builtin_return_address(0);
+	fwrite("intercepting mmap\n", sizeof("intercepting mmap\n"), 1, stderr);
+	void *mapped;
+	if (NULL == mmap_fnptr) { // Not efficient, as this is not always true
+		mmap_wrapper();
+		if (NULL == mmap_fnptr) {
+			fwrite("Couldn't dlsym __mmap\n", sizeof("Couldn't dlsym __mmap\n"), 1, stderr);
+			exit(1);
+		}
+	}
+	mapped = mmap_fnptr(start, len, prot, flags, fd, offset);
+	addToMMAPlist(mapped, len, ra);
+	return mapped;
+}
+__attribute__((visibility("default"))) int munmap(void *start, size_t len)
+{
+	//fwrite("intercepting munmap\n", sizeof("intercepting munmap\n"), 1, stderr);
+	remFromMMAPlist(start, len); // assuming munmap to be successful
+	return munmap_fnptr(start, len);
+}
+#if 0
+__attribute__((visibility("default"))) void *mremap(void *oldaddr, int tmp,  size_t old_size, size_t new_size, int flags, ...)
+{
+	fwrite("intercepting mremap\n", sizeof("intercepting mremap\n"), 1, stderr);
+	va_list args;
+	va_start(args, flags);
+	void *newaddr = mremap_fnptr(oldaddr, old_size, new_size, flags, args);
+	va_end(args);
+	return newaddr;
+}
+__attribute__((visibility("default"))) void *mmap64(void *start, size_t len, int prot, int flags, int fd, off64_t offset)
+{
+	fwrite("intercepting mmap64\n", sizeof("intercepting mmap64\n"), 1, stderr);
+	if (NULL == mmap64_fnptr)
+		mmap_wrapper();
+	return mmap64_fnptr(start, len, prot, flags, fd, offset);
+}
+#endif
+#ifndef PREPEND_LISTDATA
+char gListInitialAlloc_buffer[G_INITIAL_LIST_ALLOC_SIZE];
+#endif
+
+char gInitialAlloc_buffer[G_INITIAL_ALLOC_SIZE];
+
+void sndMmapIntercepts(mqd_t mqsend)
+{
+	msg_resp msgresp;
+	// Plan is to write this as header for checking compatibility during offline analysis
+	hp_walk_header hpwHdr = {MEMWRAP_MSG_RESP_VERSION,0};
+
+	LIST_mmap_wrap *tmp = mmap_wrap_head;
+
+	msgresp.numItemOrInfo = HEAPWALK_EMPTY;
+	if (NULL == tmp) {
+		mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+	}
+	else {
+		while (tmp)
+		{
+			msgresp.xfer[msgresp.numItemOrInfo].stack_addr_bottom = tmp->start_addr;
+			msgresp.xfer[msgresp.numItemOrInfo].start_routine = tmp->ra;
+			msgresp.xfer[msgresp.numItemOrInfo].size = tmp->end_addr - tmp->start_addr;
+			msgresp.xfer[msgresp.numItemOrInfo++].seconds = tmp->time;
+			hpwHdr.totalEntries++;
+
+			// Check if we've reached max size to transfer
+			if (MAX_MSG_XFER <= msgresp.numItemOrInfo) {
+				if (tmp->next) {
+					msgresp.numItemOrInfo |= HEAPWALK_ITEM_CONTN;
+				}
+				else {
+					msgresp.numItemOrInfo |= HEAPWALK_ENDOF_LIST;
+				}
+				mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp),0);
+				msgresp.numItemOrInfo = HEAPWALK_EMPTY;
+			}
+			tmp = tmp->next;
+		}
+		if (msgresp.numItemOrInfo) { 
+			msgresp.numItemOrInfo |= HEAPWALK_ENDOF_LIST;
+			mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
+		}
+	}
+}
+#endif
+
 /**
  * @brief Initializes the initial memory mapping.
  *
@@ -113,6 +299,7 @@ void dbg(int level, const char *fmt, ...)
 void mapInitialMemory()
 {
 #ifndef PREPEND_LISTDATA
+#if !defined(INTERCEPT_MMAP)
 	if (NULL == gListInitialAlloc)
 	{
 		gListInitialAlloc = mmap(NULL, G_INITIAL_LIST_ALLOC_SIZE, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -122,7 +309,13 @@ void mapInitialMemory()
 			exit(2);
 		}
 	}
-#endif
+#else
+	if (NULL == gListInitialAlloc) {
+		gListInitialAlloc = gListInitialAlloc_buffer;
+	}
+#endif // #if !defined(INTERCEPT_MMAP)
+#endif // #ifndef PREPEND_LISTDATA
+#if !defined(INTERCEPT_MMAP)
 	if (NULL == gInitialAlloc)
 	{
 		gInitialAlloc = mmap(NULL, G_INITIAL_ALLOC_SIZE, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -135,6 +328,18 @@ void mapInitialMemory()
 		memset(gInitialAlloc, 0, G_INITIAL_ALLOC_SIZE);
 #endif
 	}
+#else
+	if (NULL == gInitialAlloc) {
+		gInitialAlloc = gInitialAlloc_buffer;
+		mmap_wrapper();
+		/*gInitialAlloc = mmap(gInitialAlloc, G_INITIAL_ALLOC_SIZE, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		if (gInitialAlloc == MAP_FAILED)
+		{
+			fwrite("gInitialAlloc mmap failed\n", strlen("gInitialAlloc mmap failed\n"), 1, stderr);
+			exit(2);
+		}*/
+	}
+#endif
 }
 
 // Making it global to close & unlink during exit
@@ -227,6 +432,9 @@ static void *thread_start(void *arg)
 							//dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
 							dbg(PRINT_ERROR, "%s: cmd: 0x%x sending pthread intercepts on mq %d\n", __FUNCTION__, msgcmd.cmd, mqsend);
 							sndPthreadIntercepts(mqsend);
+#if defined(INTERCEPT_MMAP)
+							sndMmapIntercepts(mqsend);
+#endif
 						}
 #else
 						msg_resp msgresp;
@@ -315,7 +523,6 @@ typedef void *(*memalign_type)(size_t, size_t);
 memalign_type libc_memalign_fnptr = NULL;
 #endif
 
-
 /**
  * @brief Start the heapwalk thread.
  *
@@ -355,10 +562,9 @@ static void run_in_child_context(void)
 	heapwalk_thread_start();
 }
 
-#ifndef SELF_TEST
+#ifndef SELF_TEST2
 __attribute__((constructor))
 #endif
-
 /**
  * @brief Loads libc memory allocation functions.
  *
@@ -562,7 +768,7 @@ LIST *getItem(void *ptr)
 	LIST *ret = NULL;
 	pthread_mutex_lock(&lock);
 #ifndef PREPEND_LISTDATA
-#ifndef MAINTAIN_SINGLE_LIST
+    #ifndef MAINTAIN_SINGLE_LIST
 	LIST *tmp = memhead;
 	while (tmp)
 	{
@@ -583,7 +789,7 @@ LIST *getItem(void *ptr)
 		}
 		tmp = tmp->next;
 	}
-#else  /* else of #ifndef MAINTAIN_SINGLE_LIST */
+    #else  /* else of #ifndef MAINTAIN_SINGLE_LIST */
 	LIST *tmp = hpfmemhead;
 	while (tmp)
 	{
@@ -594,16 +800,14 @@ LIST *getItem(void *ptr)
 		}
 		tmp = tmp->next;
 	}
-#endif /* End of #ifndef MAINTAIN_SINGLE_LIST */
+    #endif /* End of #ifndef MAINTAIN_SINGLE_LIST */
 #else  /* else of #ifndef PREPEND_LISTDATA */
 	ret = (LIST *)((char *)ptr - sizeof(LIST));
-// #if defined(PREPEND_LISTDATA)
-// TODO: Add unlikely attribute
+	// TODO: Add unlikely attribute
 	if (0xBEAD0000 != (ret->flags & 0xFFFF0000))
 	{
 		ret = NULL;
 	}
-// #endif
 #endif
 	pthread_mutex_unlock(&lock);
 	return ret;

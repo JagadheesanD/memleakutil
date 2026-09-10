@@ -45,25 +45,32 @@ typedef struct hp_header {
 #define PREPEND_LISTDATA /* Allocate extra for holding the data to avoid additional allocation */
 #define OPTIMIZE_MQ_TRANSFER /* Avoid holding the process during lengthy heapwalk */
 #define MAINTAIN_SINGLE_LIST /* Maintain single list for both walked and unwalked */
+#define INTERCEPT_MMAP /* intercepts mmap calls. Makes use of static buffer for initial allocations, rather than allocating via mmap */
 
 /* Command Optimization Flags */
-#ifdef OPTIMIZE_MQ_TRANSFER
+#if defined(OPTIMIZE_MQ_TRANSFER)
 #define OPTIMIZE_MQ_TRANSFER_FOR_CMD 1
 #else
 #define OPTIMIZE_MQ_TRANSFER_FOR_CMD 0
 #endif
 
-#ifdef PREPEND_LISTDATA
+#if defined(PREPEND_LISTDATA)
 #define ENABLE_STATISTICS
 #define PREPEND_LISTDATA_FOR_CMD 1
 #else
 #define PREPEND_LISTDATA_FOR_CMD 0
 #endif
 
-#ifdef MAINTAIN_SINGLE_LIST
+#if defined(MAINTAIN_SINGLE_LIST)
 #define MAINTAIN_SINGLE_LIST_FOR_CMD 1
 #else
 #define MAINTAIN_SINGLE_LIST_FOR_CMD 0
+#endif
+
+#if defined(INTERCEPT_MMAP)
+#define INTERCEPT_MMAP_FOR_CMD 1
+#else
+#define INTERCEPT_MMAP_FOR_CMD 0
 #endif
 
 //#define PROCESS_PAGEMAP_IN_LIB
@@ -75,9 +82,6 @@ typedef struct hp_header {
 #define STATIC
 #endif
 
-/* Data Structures */
-struct list;
-
 enum {
 	FLAGS_BIT0_GLIBC_ALLOCATED = 0,
 	FLAGS_BIT0_STATIC_BUFF_ALLOCATED = 1,
@@ -85,6 +89,10 @@ enum {
 	FLAGS_BIT1_REALLOC = 2,
 	FLAGS_MEMALIGN // Let it get 1 more than last entry
 };
+
+/* Data Structures */
+struct list;
+
 /* 
  * Define LIST structure - Ensure gListInitIndex is aligned to void* and sync with LISTxfer structure 
  * NOTE: Don't pack this structure
@@ -217,6 +225,18 @@ typedef struct pagemap_list
         struct pagemap_list *next;
 } LIST_pagemap;
 
+#if defined(INTERCEPT_MMAP)
+struct list_mmap_wrap;
+
+typedef struct list_mmap_wrap {
+        void *start_addr;
+        void *end_addr;
+        void *ra;
+        time_t time;
+        struct list_mmap_wrap *next;
+}LIST_mmap_wrap;
+#endif
+
 /* Message Queue Configuration */
 #define MQ_MSG_SIZE 128
 typedef struct mq_msg_cmd
@@ -235,7 +255,8 @@ typedef enum
 	HEAPWALK_MARKALL = (HEAPWALK_BASE | 5),
 	HEAPWALK_RESET_MARKED = (HEAPWALK_BASE | 6),
 	HEAPWALK_MALLOC_STATS = (HEAPWALK_BASE | 7),
-	HEAPWALK_PTHREAD_INTERCEPT = (HEAPWALK_BASE | 8) // Internal cmd to get pthread create intercepts
+	HEAPWALK_PTHREAD_INTERCEPT = (HEAPWALK_BASE | 8), // Internal cmd to get pthread create intercepts
+	HEAPWALK_INTERCEPT_MMAP = (HEAPWALK_BASE | 9)
 	//HEAPWALK_EXIT = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | 0)
 } mycmds;
 
