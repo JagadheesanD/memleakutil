@@ -476,7 +476,6 @@ void mappthreadStack(unsigned pid)
 						// Iterate through anon entry list to update entries belonging to stack
 						// Unoptimized, but for now okay
 						MMAP_info *tmpanon = mmapAnon;
-						//unsigned found = 0;
 						unsigned rssvalue = 0;
 						unsigned swapvalue = 0;
 						while (tmpanon) {
@@ -500,7 +499,6 @@ void mappthreadStack(unsigned pid)
 								}
 								dbg(PRINT_INFO, "Found stack %lx size %lu in [anon], now %s, %lx:%lx with rss %u\n", 
 									stack_addr_bottom, msgresp.xfer[msgIndex].size, tmpanon->entryName, tmpanon->startAddress, tmpanon->endAddress, tmpanon->rss);
-								//found = 1;
 								rssvalue = tmpanon->rss;
 								swapvalue = tmpanon->swapPss;
 								break;
@@ -511,19 +509,18 @@ void mappthreadStack(unsigned pid)
 								dbg(PRINT_INFO, "Found stack %lx size %lu in %s, %lx:%lx with rss %u\n", 
 									stack_addr_bottom, msgresp.xfer[msgIndex].size, tmpanon->entryName, tmpanon->startAddress, tmpanon->endAddress, tmpanon->rss);
 
-								LIST_pagemap *pagetmp = pagemapHead, *pageprev = NULL;;
+								LIST_pagemap *pagetmp = pagemapHead;
 								unsigned printonce = 1;
 								// TODO optimize
-								// Found stack 7fd4892b2000 in anon's, 7fd4892b2000:7fd489ab2000
 
 								while (pagetmp) {
-									if (pagetmp->pageaddress > ptr) { // No point in going past
-										if (pageprev && ((pagetmp->pageaddress - pageprev->pageaddress) < size)) {
-											dbg(PRINT_INFO, "ptr %p, pageprev %p pagenow %p\n", ptr, pageprev->pageaddress, pagetmp->pageaddress);
-											dbg(PRINT_INFO, "Adjusting ptr %p (size %d) with %lu\n", ptr, size, 
-													(unsigned long)(pagetmp->pageaddress - pageprev->pageaddress));
-											ptr += (pagetmp->pageaddress - pageprev->pageaddress);
-											size -= (pagetmp->pageaddress - pageprev->pageaddress);
+									if (pagetmp->pageaddress > ptr) { // No point in going past, if the size
+										if ((pagemapHead != pagetmp) && ((pagetmp->pageaddress - ptr) < size)) {
+											dbg(PRINT_ERROR, "ptr %p, pagenow %p\n", ptr, pagetmp->pageaddress);
+											dbg(PRINT_ERROR, "Adjusted ptr %p (size %d) with %lx\n", ptr+(pagetmp->pageaddress - ptr), size, 
+													(unsigned long)(pagetmp->pageaddress - ptr));
+											size -= (pagetmp->pageaddress - ptr);
+											ptr += (pagetmp->pageaddress - ptr);
 										}
 										else {
 											dbg(PRINT_ERROR, "Breaking, ptr %p < pagemap %p\n", ptr, pagetmp->pageaddress);
@@ -570,10 +567,9 @@ void mappthreadStack(unsigned pid)
 											size = size - sizeinpage;
 										}
 									}
-									pageprev = pagetmp;
 									pagetmp = pagetmp->next;
 								}
-								dbg(PRINT_INFO, "Stack %p size %u rss %u swap %u\n", ptr, size, rssvalue, swapvalue);
+								dbg(PRINT_INFO, "Stack %p size %u KB rss %u KB swap %u KB\n", ptr, size/1024, rssvalue/1024, swapvalue/1024);
 								if (msgresp.xfer[msgIndex].pthread_id) {
 									pthreadStack_tstack += (rssvalue / 1024);
 									pthreadStackSwap_tstack += (swapvalue / 1024);
@@ -583,7 +579,6 @@ void mappthreadStack(unsigned pid)
 									pthreadStackSwap_etstack += (swapvalue / 1024);
 								}
 	
-								//found = 1;
 								break;
 							}
 							tmpanon = tmpanon->next;
@@ -598,6 +593,7 @@ void mappthreadStack(unsigned pid)
 						else {
 							// Right now not used..
 							// ?? tmpanon->pthreadinfo.pthread_id = msgresp.xfer[msgIndex].pthread_id;
+							tmpanon->pthreadinfo.stack_addr = msgresp.xfer[msgIndex].stack_addr_bottom;
 							tmpanon->pthreadinfo.size = msgresp.xfer[msgIndex].size;
 							tmpanon->pthreadinfo.stack_rss = rssvalue;
 							tmpanon->pthreadinfo.stack_swap = swapvalue;
@@ -1547,10 +1543,6 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 					PRINT("\t%016lx-%016lx %9s(%s) %10u %10u\n",
 						  tmpprn->startAddress, tmpprn->endAddress, tmpprn->entryName, tmpprn->perm, tmpprn->size, tmpprn->rss);
 				}
-				//tmpanon->pthreadinfo.size = msgresp.xfer[msgIndex].size;
-				//tmpanon->pthreadinfo.stack_rss = rssvalue;
-				//tmpanon->pthreadinfo.stack_swap = swapvalue;
-				//tmpanon->pthreadinfo.start_routine = msgresp.xfer[msgIndex].start_routine;
 				
 				if (tmpprn->pthreadinfo.size) {
 					char *binaryMapped = "";
@@ -1559,8 +1551,9 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 					}
 					void *offsetRA = getOffsetMapped(tmpprn->pthreadinfo.start_routine, &binaryMapped, mmapAll);
 					
-					PRINT("\tThread: (%p: %s), Size: %lu Rss: %lu Swap: %lu\n\n", (offsetRA)?offsetRA:tmpprn->pthreadinfo.start_routine, binaryMapped, 
-							tmpprn->pthreadinfo.size, tmpprn->pthreadinfo.stack_rss, tmpprn->pthreadinfo.stack_swap);
+					PRINT("\tThread Stack: Pointer %p Size: %lu Rss: %lu Swap: %lu (%p: %s)\n\n", 
+							tmpprn->pthreadinfo.stack_addr, tmpprn->pthreadinfo.size/1024, tmpprn->pthreadinfo.stack_rss/1024, tmpprn->pthreadinfo.stack_swap/1024,
+						       	(offsetRA)?offsetRA:tmpprn->pthreadinfo.start_routine, binaryMapped);
 				}
 				else {
 					PRINT("\n");
@@ -1675,9 +1668,8 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 							{
 									unsigned rssvalue = 0;
 									unsigned swapvalue = 0;
-									// RESUME HERE ..
 									// This might be the good place to determine if the allocation has associated physical page
-									LIST_pagemap *pagetmp = pagemapHead, *pageprev = NULL;
+									LIST_pagemap *pagetmp = pagemapHead;
 									void *ptr = msgresp.xfer[msgIndex].ptr;
 									//void *ptrPagemap = msgresp.xfer[msgIndex].ptr & 0xFFFFFFFFFFFFF000;  // sysconf(_SC_PAGE_SIZE) = 4096
 									void *ptrPagemap = (void*)((unsigned long)msgresp.xfer[msgIndex].ptr & ~(PAGE_SIZE - 1));
@@ -1686,15 +1678,15 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 									while (pagetmp) {
 
 										if (pagetmp->pageaddress > ptrPagemap) { // No point in going past
-											if (pageprev && ((pagetmp->pageaddress - pageprev->pageaddress) < size)) {
-												dbg(PRINT_INFO, "ptr %p, pageprev %p pagenow %p\n", ptrPagemap, pageprev->pageaddress, pagetmp->pageaddress);
+											if ((pagemapHead != pagetmp) && ((pagetmp->pageaddress - ptrPagemap) < size)) {
+												dbg(PRINT_INFO, "ptr %p, pagenow %p\n", ptrPagemap, pagetmp->pageaddress);
 												dbg(PRINT_INFO, "Adjusting ptr %p (size %d) with %lu\n", ptrPagemap, size, 
-														(unsigned long)(pagetmp->pageaddress - pageprev->pageaddress));
-												ptrPagemap += (pagetmp->pageaddress - pageprev->pageaddress);
-												size -= (pagetmp->pageaddress - pageprev->pageaddress);
+														(unsigned long)(pagetmp->pageaddress - ptrPagemap));
+												size -= (pagetmp->pageaddress - ptrPagemap);
+												ptrPagemap += (pagetmp->pageaddress - ptrPagemap);
 											}
 											else {
-												dbg(PRINT_ERROR, "Breaking, ptr %p < pagemap %p\n", ptr, pagetmp->pageaddress);
+												dbg(PRINT_INFO, "Breaking, ptr %p < pagemap %p\n", ptr, pagetmp->pageaddress);
 												break;
 											}
 										}
@@ -1719,7 +1711,8 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 													swapvalue += size;
 												}
 												break;
-											}else {
+											}
+											else {
 												ptr += sizeinpage;
 												size = size - sizeinpage;
 												if (PAGE_PRESENT & pagetmp->pagestat) {
@@ -1728,16 +1721,14 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 												else if (PAGE_SWAPPED & pagetmp->pagestat) {
 													swapvalue += sizeinpage;
 												}
-												pageprev = pagetmp;
 												pagetmp = pagetmp->next;
 
 												ptrPagemap += PAGE_SIZE;
-												dbg(PRINT_ERROR, "Accounted this page, continuing\n");
+												dbg(PRINT_INFO, "Accounted this page, continuing\n");
 												// Account this page for total
 												continue;
 											}
 										}
-										pageprev = pagetmp;
 										pagetmp = pagetmp->next;
 									}
 									if (NULL == pagetmp) {

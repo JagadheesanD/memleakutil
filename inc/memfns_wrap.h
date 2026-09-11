@@ -153,6 +153,7 @@ struct HEATMAP
 struct pthread_info
 {
 	pthread_t pthread_id;
+	void *stack_addr;
 	unsigned long size;
 	unsigned long stack_rss;
 	unsigned long stack_swap;
@@ -247,7 +248,7 @@ typedef struct mq_msg_cmd
 
 typedef enum
 {
-	HEAPWALK_BASE = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21),
+	HEAPWALK_BASE = (MEMWRAP_COMMANDS_VERSION << 24 | OPTIMIZE_MQ_TRANSFER_FOR_CMD << 23 | PREPEND_LISTDATA_FOR_CMD << 22 | MAINTAIN_SINGLE_LIST_FOR_CMD << 21 | INTERCEPT_MMAP_FOR_CMD << 20),
 	HEAPWALK_INCREMENT = (HEAPWALK_BASE | 1),
 	HEAPWALK_FULL = (HEAPWALK_BASE | 2),
 	HEAPWALK_LEAKCHECK = (HEAPWALK_BASE | 3),

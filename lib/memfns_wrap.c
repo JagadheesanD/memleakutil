@@ -178,9 +178,9 @@ void addToMMAPlist(void *start, size_t len, void *ra)
 			mmap_wrap_head = tmp;
 		}
 	}
-	tmp = mmap_wrap_head;
-	while (tmp) { PRINT("\n%p-%p", tmp->start_addr, tmp->end_addr);tmp = tmp->next;}
-	dbg(PRINT_MUST, "\n");
+	//tmp = mmap_wrap_head;
+	//while (tmp) { PRINT("\n%p-%p", tmp->start_addr, tmp->end_addr);tmp = tmp->next;}
+	//dbg(PRINT_MUST, "\n");
 }
 
 void remFromMMAPlist(void *start, size_t len)
@@ -197,16 +197,15 @@ void remFromMMAPlist(void *start, size_t len)
 	if (!tmp) {
 		dbg(PRINT_ERROR, "munmap list rem failed 0x%p, size %ld list head 0x%p\n", start, len, mmap_wrap_head);
 	}
-	tmp = mmap_wrap_head;
-	while (tmp) { PRINT("\n%p-%p", tmp->start_addr, tmp->end_addr);tmp = tmp->next;}
-	dbg(PRINT_MUST, "\n");
+	//tmp = mmap_wrap_head;
+	//while (tmp) { PRINT("\n%p-%p", tmp->start_addr, tmp->end_addr);tmp = tmp->next;}
+	//dbg(PRINT_MUST, "\n");
 }
 
 __attribute__((visibility("default"))) void *mmap(void *start, size_t len, int prot, int flags, int fd, off_t offset)
 {
 	void *ra = __builtin_return_address(0);
-	fwrite("intercepting mmap\n", sizeof("intercepting mmap\n"), 1, stderr);
-	void *mapped;
+	//fwrite("intercepting mmap\n", sizeof("intercepting mmap\n"), 1, stderr);
 	if (NULL == mmap_fnptr) { // Not efficient, as this is not always true
 		mmap_wrapper();
 		if (NULL == mmap_fnptr) {
@@ -214,7 +213,7 @@ __attribute__((visibility("default"))) void *mmap(void *start, size_t len, int p
 			exit(1);
 		}
 	}
-	mapped = mmap_fnptr(start, len, prot, flags, fd, offset);
+	void *mapped = mmap_fnptr(start, len, prot, flags, fd, offset);
 	addToMMAPlist(mapped, len, ra);
 	return mapped;
 }
