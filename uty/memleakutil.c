@@ -192,6 +192,25 @@ mqd_t createMq()
 	return mqrecv;
 }
 
+typedef struct header {
+	int version;
+	long walkedIndex;
+	long walkedSize;
+	long walkIndex;
+	long walkSize;
+	long stackInterceptIndex;
+	long stackInterceptSize;
+	long mmapInterceptIndex;
+	long mmapInterceptSize;
+	long smapsIndex;
+	long smapsSize;
+	long pagemapIndex;
+	long pagemapSize;
+	long crc;
+}HEADER;
+HEADER hdr;
+FILE *memFP;
+
 #ifdef OPTIMIZE_MQ_TRANSFER
 /**
  * @brief Stores heapwalk data to a file.
@@ -206,16 +225,12 @@ mqd_t createMq()
 int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 {
 	msg_resp msgresp;
-#ifdef SELF_TEST1
-	unsigned index = 0;
-	int stcmd = cmd;
-#endif
 	unsigned int prio;
 	struct timespec tm;
 	int msgsize = sizeof(msg_resp);
 	char heapwalkFile[128];
 	dbg(PRINT_INFO, "%s+\n", __FUNCTION__);
-#ifndef SELF_TEST1
+	
 	sprintf(heapwalkFile, "%s/hp_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
 	FILE *fpHWalk = fopen(heapwalkFile, "wb");
 	if (NULL == fpHWalk)
@@ -223,6 +238,7 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 		dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
 		return 1;
 	}
+
 	FILE *fpCurrent = fpHWalk;
 	FILE *fpHWFull;
 	if ((HEAPWALK_FULL == cmd) || (HEAPWALK_MMAP_ENTRIES == cmd))
@@ -241,9 +257,11 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 	{
 		fpHWFull = NULL;
 	}
-#endif
+
+	size_t writtenSize = 0;
 	while (0 != msgsize)
 	{
+
 		clock_gettime(CLOCK_REALTIME, &tm);
 		tm.tv_sec += 10;
 		msgsize = mq_timedreceive(mqrecv, (char *)&msgresp, sizeof(msg_resp), &prio, &tm);
@@ -253,12 +271,10 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 			}else {
 				dbg(PRINT_MUST, "%s:%d: mq_timedreceive failed [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
 			}
-#ifndef SELF_TEST1
 			if (fpHWFull == fpCurrent) {
 				fclose(fpHWFull);
 			}
 			fclose(fpHWalk);
-#endif
 			return 1;
 		}
 		else if (msgsize)
@@ -266,20 +282,33 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 			unsigned int info = msgresp.numItemOrInfo & 0x30000000;
 			if (info)
 			{
-#ifndef SELF_TEST1
 				if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpCurrent))
 				{
 					dbg(PRINT_MUST, "%s: Error storing %s\n", __FUNCTION__, strerror(errno));
 				}
-#else
-				memcpy(&stmsgresp[index++], &msgresp, sizeof(msg_resp));
-#endif
+				if (!(msgsize = fwrite((void *)&msgresp, 1, sizeof(msg_resp), memFP)))
+				{
+					dbg(PRINT_MUST, "%s:%d Error storing %s\n", __FUNCTION__, __LINE__, strerror(errno));
+				}
+				writtenSize += msgsize;	
 				if (HEAPWALK_ITEM_CONTN == info)
 				{
 					continue;
 				}
 			}
-#ifndef SELF_TEST1
+			if ((HEAPWALK_FULL == cmd) || (HEAPWALK_MMAP_ENTRIES == cmd)) {
+				hdr.walkedSize = writtenSize;
+				hdr.walkIndex = ftell(memFP);
+				dbg(PRINT_ERROR, "%s: walkedSize %lu %lx, hdr.walkIndex %lx\n", __FUNCTION__, writtenSize, writtenSize, hdr.walkIndex);
+				writtenSize = 0;
+				cmd = HEAPWALK_INCREMENT;
+			}
+			else {
+				hdr.walkSize = writtenSize;
+				hdr.stackInterceptIndex = ftell(memFP);
+				dbg(PRINT_ERROR, "%s: walkSize %lu %lx, hdr.stackInterceptIndex %lx\n", __FUNCTION__, writtenSize, writtenSize, hdr.stackInterceptIndex);
+				//break;  TODO TODO JAGA Jaga uncomment after removing the old logic
+			}
 			if (fpHWFull == fpCurrent)
 			{
 				if (!isSelfTest)
@@ -298,38 +327,6 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 				fclose(fpHWalk);
 				break;
 			}
-#else
-			if (HEAPWALK_INCREMENT != stcmd) { 
-				sprintf(heapwalkFile, "%s/hpf_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
-				FILE *fpHWFull = fopen(heapwalkFile, "wb");
-				if (NULL == fpHWFull) {
-					dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
-					return 1;
-				}
-				if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWFull))
-				{
-					dbg(PRINT_MUST, "%s: Error storing %s\n", __FUNCTION__, strerror(errno));
-				}
-				fclose(fpHWFull);
-				memset(&msgresp, 0, sizeof(msgresp));
-				index = 0;
-				stcmd = HEAPWALK_INCREMENT;
-			}	
-			else {
-				sprintf(heapwalkFile, "%s/hp_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
-				FILE *fpHWFull = fopen(heapwalkFile, "wb");
-				if (NULL == fpHWFull) {
-					dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
-					return 1;
-				}
-				if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWFull))
-				{
-					dbg(PRINT_MUST, "%s: Error storing %s\n", __FUNCTION__, strerror(errno));
-				}
-				fclose(fpHWFull);
-				break;
-			}			
-#endif
 		}
 	}
 	return 0;
@@ -346,52 +343,58 @@ void getMmapIntercepts(mqd_t mqrecv, unsigned pid)
 	char heapwalkFile[128];
 	sprintf(heapwalkFile, "%s/hpm_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
 	FILE *fpHWalk = fopen(heapwalkFile, "wb");
-	if (NULL == fpHWalk)
-	{
-		dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
-		return;
-	}
-	while (0 != msgsize)
-	{
-		clock_gettime(CLOCK_REALTIME, &tm);
-		tm.tv_sec += 10;
-		msgsize = mq_timedreceive(mqrecv, (char *)&msgresp, sizeof(msg_resp), &prio, &tm);
-		if (-1 == msgsize) {
-			if (ETIMEDOUT == errno) {
-				dbg(PRINT_MUST, "%s:%d: Giving up..waited for 10 secs\n", __FUNCTION__, __LINE__);
-			}else {
-				dbg(PRINT_MUST, "%s:%d: mq_timedreceive failed [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
-			}
-			fclose(fpHWalk);
-			return;
-		}
-		else if (msgsize)
+	if (fpHWalk) {
+		while (0 != msgsize)
 		{
-			unsigned int info = msgresp.numItemOrInfo & 0x30000000;
-			dbg(PRINT_INFO, "%s: Received msgsize %d, info %x\n", __FUNCTION__, msgsize, info);
-			if (info)
+			clock_gettime(CLOCK_REALTIME, &tm);
+			tm.tv_sec += 10;
+			msgsize = mq_timedreceive(mqrecv, (char *)&msgresp, sizeof(msg_resp), &prio, &tm);
+			if (-1 == msgsize) {
+				if (ETIMEDOUT == errno) {
+					dbg(PRINT_MUST, "%s:%d: Giving up..waited for 10 secs\n", __FUNCTION__, __LINE__);
+				}else {
+					dbg(PRINT_MUST, "%s:%d: mq_timedreceive failed [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
+				}
+				break;
+			}
+			else if (msgsize)
 			{
-				LIST_mmap_wrap tmp;
-				unsigned numItems = msgresp.numItemOrInfo & 0xfffffff;
-				dbg(PRINT_INFO, "%s: Received items count %u\n", __FUNCTION__, numItems);
-				unsigned index = 0;
-				for (;index < numItems; index++) {
-					tmp.start_addr = msgresp.xfer[index].stack_addr_bottom;
-					tmp.end_addr = tmp.start_addr + msgresp.xfer[index].size;
-					tmp.ra = msgresp.xfer[index].start_routine;
-					tmp.time = msgresp.xfer[index].seconds;
-					if (!fwrite((void *)&tmp, sizeof(tmp), 1, fpHWalk)) {
-						dbg(PRINT_MUST, "%s: Error storing %s\n", __FUNCTION__, strerror(errno));
+				unsigned int info = msgresp.numItemOrInfo & 0x30000000;
+				dbg(PRINT_INFO, "%s: Received msgsize %d, info %x\n", __FUNCTION__, msgsize, info);
+				if (info)
+				{
+					LIST_mmap_wrap tmp;
+					unsigned numItems = msgresp.numItemOrInfo & 0xfffffff;
+					dbg(PRINT_INFO, "%s: Received items count %u\n", __FUNCTION__, numItems);
+					unsigned index = 0;
+					for (;index < numItems; index++) {
+						tmp.start_addr = msgresp.xfer[index].stack_addr_bottom;
+						tmp.end_addr = tmp.start_addr + msgresp.xfer[index].size;
+						tmp.ra = msgresp.xfer[index].start_routine;
+						tmp.time = msgresp.xfer[index].seconds;
+						if (!fwrite((void *)&tmp, sizeof(tmp), 1, fpHWalk)) {
+							dbg(PRINT_MUST, "%s: Error storing %s\n", __FUNCTION__, strerror(errno));
+						}
+						if (sizeof(tmp) > (msgsize = fwrite((void *)&tmp, 1, sizeof(tmp), memFP))) {
+							dbg(PRINT_MUST, "%s:%d Error storing %s, stored %d instead of %lu\n", 
+									__FUNCTION__, __LINE__, strerror(errno), msgsize, sizeof(tmp));
+						}
+						hdr.mmapInterceptSize += msgsize;	
+					}
+					if (HEAPWALK_ITEM_CONTN == info)
+					{
+						continue;
 					}
 				}
-				if (HEAPWALK_ITEM_CONTN == info)
-				{
-					continue;
-				}
+				break;
 			}
-			fclose(fpHWalk);
-			break;
 		}
+		fclose(fpHWalk);
+		hdr.smapsIndex = ftell(memFP);
+		dbg(PRINT_ERROR, "%s: mmapInterceptSize %lx, hdr.smapsIndex %lx\n", __FUNCTION__, hdr.mmapInterceptSize, hdr.smapsIndex);
+	}
+	else {
+		dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
 	}
 	return;
 }
@@ -406,43 +409,49 @@ int getStackIntercepts(mqd_t mqrecv, unsigned pid)
 	char heapwalkFile[128];
 	sprintf(heapwalkFile, "%s/hps_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
 	FILE *fpHWalk = fopen(heapwalkFile, "wb");
-	if (NULL == fpHWalk)
-	{
-		dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
-		return 1;
-	}
-	while (0 != msgsize)
-	{
-		clock_gettime(CLOCK_REALTIME, &tm);
-		tm.tv_sec += 10;
-		msgsize = mq_timedreceive(mqrecv, (char *)&msgresp, sizeof(msg_resp), &prio, &tm);
-		if (-1 == msgsize) {
-			if (ETIMEDOUT == errno) {
-				dbg(PRINT_MUST, "%s:%d: Giving up..waited for 10 secs\n", __FUNCTION__, __LINE__);
-			}else {
-				dbg(PRINT_MUST, "%s:%d: mq_timedreceive failed [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
-			}
-			fclose(fpHWalk);
-			return 1;
-		}
-		else if (msgsize)
+	if (fpHWalk) {
+		while (0 != msgsize)
 		{
-			unsigned int info = msgresp.numItemOrInfo & 0x30000000;
-			if (info)
-			{
-				if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWalk))
-				{
-					dbg(PRINT_MUST, "%s: Error storing %s\n", __FUNCTION__, strerror(errno));
+			clock_gettime(CLOCK_REALTIME, &tm);
+			tm.tv_sec += 10;
+			msgsize = mq_timedreceive(mqrecv, (char *)&msgresp, sizeof(msg_resp), &prio, &tm);
+			if (-1 == msgsize) {
+				if (ETIMEDOUT == errno) {
+					dbg(PRINT_MUST, "%s:%d: Giving up..waited for 10 secs\n", __FUNCTION__, __LINE__);
+				}else {
+					dbg(PRINT_MUST, "%s:%d: mq_timedreceive failed [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
 				}
-				dbg(PRINT_INFO, "pthread intercept received (%u) entries\n", msgresp.numItemOrInfo & 0xfffffff);
-				if (HEAPWALK_ITEM_CONTN == info)
-				{
-					continue;
-				}
+				break;
 			}
-			fclose(fpHWalk);
-			break;
+			else if (msgsize)
+			{
+				unsigned int info = msgresp.numItemOrInfo & 0x30000000;
+				if (info)
+				{
+					if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWalk))
+					{
+						dbg(PRINT_MUST, "%s: Error storing %s\n", __FUNCTION__, strerror(errno));
+					}
+					if (sizeof(msg_resp) > (msgsize = fwrite((void *)&msgresp, 1, sizeof(msgresp), memFP))) {
+						dbg(PRINT_MUST, "%s:%d Error storing %s, stored %d instead of %lu\n", 
+								__FUNCTION__, __LINE__, strerror(errno), msgsize, sizeof(msg_resp));
+					}
+					hdr.stackInterceptSize += msgsize;
+					dbg(PRINT_INFO, "pthread intercept received (%u) entries\n", msgresp.numItemOrInfo & 0xfffffff);
+					if (HEAPWALK_ITEM_CONTN == info)
+					{
+						continue;
+					}
+				}
+				break;
+			}
 		}
+		fclose(fpHWalk);
+		hdr.mmapInterceptIndex = ftell(memFP);
+		dbg(PRINT_ERROR, "%s: stackInterceptSize %lx, hdr.mmapInterceptIndex %lx\n", __FUNCTION__, hdr.stackInterceptSize, hdr.mmapInterceptIndex);
+	}
+	else {
+		dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
 	}
 	return 0;
 }
@@ -482,6 +491,8 @@ void mappthreadStack(unsigned pid)
 							void *ptr = msgresp.xfer[msgIndex].stack_addr_bottom;
 							unsigned size = msgresp.xfer[msgIndex].size;
 							unsigned long stack_addr_bottom = (unsigned long)ptr; //msgresp.xfer[msgIndex].stack_addr_bottom;
+							dbg(PRINT_NOISE, "Checking stack %lx size %lx in [anon], now %s, %lx:%lx with rss %u\n", 
+									stack_addr_bottom, msgresp.xfer[msgIndex].size, tmpanon->entryName, tmpanon->startAddress, tmpanon->endAddress, tmpanon->rss);
 							if ((stack_addr_bottom == tmpanon->startAddress) && ((stack_addr_bottom+size) == tmpanon->endAddress)) {
 								if (!strcmp(tmpanon->entryName, "[anon]")) {
 									strcpy(tmpanon->entryName, (msgresp.xfer[msgIndex].pthread_id)? "[tstack]" : "[etstack]");
@@ -584,11 +595,17 @@ void mappthreadStack(unsigned pid)
 							tmpanon = tmpanon->next;
 						} // while (tmpanon)
 						if (!tmpanon) {
-							// Then this thread is no longer active...
-							if (msgresp.xfer[msgIndex].pthread_id) {
-								dbg(PRINT_ERROR, "Active thread not having anon entry!!!\n");
+							// Then this thread is either no longer active or anon entry where it's was present might've been reused/split
+							if (msgresp.xfer[msgIndex].pthread_id) { // It shouldn't happen for active thread!! so account and display at the end
+								dbg(PRINT_ERROR, "%s: Active thread %lu stack entry not mapped, stack: %p, size %lu, start_routine: %p\n", __FUNCTION__, 
+										msgresp.xfer[msgIndex].pthread_id, msgresp.xfer[msgIndex].stack_addr_bottom, 
+										msgresp.xfer[msgIndex].size, msgresp.xfer[msgIndex].start_routine);
+								stackInactive += msgresp.xfer[msgIndex].size;
 							}
-							stackInactive += msgresp.xfer[msgIndex].size;
+							else {
+								dbg(PRINT_INFO, "%s: Inactive thread stack entry not mapped, stack: %p, size %lu, start_routine: %p\n", __FUNCTION__,
+									msgresp.xfer[msgIndex].stack_addr_bottom, msgresp.xfer[msgIndex].size, msgresp.xfer[msgIndex].start_routine);
+							}
 						}
 						else {
 							// Right now not used..
@@ -664,13 +681,19 @@ void storeAnonHeapStackPagemap(int pid)
 					// usually page size of 4096, and page info is 8 bytes. so jump to the entry
 					if (0 != fseek(src, (addr / PAGE_SIZE) * 8, SEEK_SET)) {
 						PRINT("Failed to fseek 0x%lx, %ld, %s\n", addr, PAGE_SIZE, strerror(errno));
-						continue;
+						break;
 					}
 					if(fread(&pageinfo, 8, 1, src)) {
 						// we are interested only if page present or swapped. PFN might be 0, if CAP_SYS_ADMIN capability is not present.
 						if ((unsigned)(pageinfo>>60) || (NULL == pagemapHead)) {
-							sprintf(buf, "0x%lx %u\n", addr, (unsigned)(pageinfo>>60));
+							size_t writeSize = sprintf(buf, "0x%lx %u\n", addr, (unsigned)(pageinfo>>60));
+							size_t writtenSize;
 							fwrite(buf, 1, strlen(buf), dest);
+							if (writeSize > (writtenSize = fwrite((void *)&buf, 1, writeSize, memFP))) {
+								dbg(PRINT_MUST, "%s:%d Error storing %s, written %lu instead of %lu\n", 
+										__FUNCTION__, __LINE__, strerror(errno), writeSize, writtenSize);
+							}
+							hdr.pagemapSize += writtenSize;
 							addPagemapToDataStruct(addr, 
 								(pageinfo & 0xC000000000000000)? ((pageinfo & 0x8000000000000000)? PAGE_PRESENT : PAGE_SWAPPED) : PAGE_NOT_PRESENT);
 							//firstTime = 0;
@@ -785,10 +808,10 @@ void freeMMapList()
 	mmapAll = mmapAllTail = NULL;
 	baseStack = baseStackSwap = pthreadStack_tstack = pthreadStackSwap_tstack = pthreadStack_etstack = pthreadStackSwap_etstack = 0;
 #if defined(INTERCEPT_MMAP)
-	LIST_mmap_wrap *tmp = mmap_wrap_head_uty;
-	while (tmp) {
-		tmp->start_addr = NULL;
-		tmp = tmp->next;
+	while (mmap_wrap_head_uty) {
+		LIST_mmap_wrap *tmp = mmap_wrap_head_uty;
+		mmap_wrap_head_uty = mmap_wrap_head_uty->next;
+		free(tmp);
 	}
 #endif
 
@@ -958,12 +981,22 @@ int readAndStoreSmaps(unsigned pid, bool createAnon)
 
 		time_t timenow = time(NULL);
 		struct tm *tmNow = localtime(&timenow);
-		if (0 == strftime(mmapTmpArray, sizeof(mmapTmpArray), "YYYY_MM_DD HH_MM_SS %Y_%m_%d %H_%M_%S", tmNow)) {
-			// Shouldn't fail unless mmapTmpArray is not big enough to hold
-			sprintf(mmapTmpArray, "Date_in_epoch: %lu secs", timenow); // see if this is warned in 32 bit systems..
+		char dateStr[64];
+		if (0 == strftime(dateStr, sizeof(dateStr), "YYYY_MM_DD HH_MM_SS %Y_%m_%d %H_%M_%S", tmNow)) {
+			// Shouldn't fail unless dateStr is not big enough to hold
+			sprintf(dateStr, "Date_in_epoch: %lu secs", timenow); // see if this is warned in 32 bit systems..
 		}
 		isASLREnabled = getASLRStatus();
-		fprintf(fpMmap, "ASLR: %u Time: %s\n", isASLREnabled, mmapTmpArray);
+		fprintf(fpMmap, "ASLR: %u Time: %s\n", isASLREnabled, dateStr);
+		size_t writeSize = sprintf(mmapTmpArray, "ASLR: %u Time: %s\n", isASLREnabled, dateStr);
+		size_t writtenSize;
+
+		if (writeSize > (writtenSize = fwrite((void *)&mmapTmpArray, 1, writeSize, memFP))) {
+			dbg(PRINT_MUST, "%s:%d Error storing %s, stored %lu instead of %lu\n", 
+					__FUNCTION__, __LINE__, strerror(errno), writtenSize, writeSize);
+		}
+		hdr.smapsSize += writtenSize;
+
 		sprintf(mmapTmpArray, "/proc/%u/smaps", pid);
 		
 		FILE *smap = fopen(mmapTmpArray, "r");
@@ -974,6 +1007,7 @@ int readAndStoreSmaps(unsigned pid, bool createAnon)
 			unsigned lines_To_skip = skipToEntry;
 			unsigned skipped = 1; // Tracks current skips
 			unsigned expect_entry = 1, expect_size = 0, expect_rss = 0, expect_swap_pss = 0;
+			size_t writeSize;
 
 			MMAP_info tmp = {0};
 			while (fgets(mmapTmpArray, 1024, smap)) {
@@ -1031,6 +1065,14 @@ int readAndStoreSmaps(unsigned pid, bool createAnon)
 										addMMapEntry(tmp, &mmapAnon, &mmapAnonTail);
 									}
 									fprintf(fpMmap, "%lx-%lx %u %u 0 %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
+									writeSize = sprintf(mmapTmpArray, "%lx-%lx %u %u 0 %s %s\n", 
+											tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
+
+									if (writeSize > (writtenSize = fwrite((void *)&mmapTmpArray, 1, writeSize, memFP))) {
+										dbg(PRINT_MUST, "%s:%d Error storing %s, stored %lu instead of %lu\n", 
+												__FUNCTION__, __LINE__, strerror(errno), writtenSize, writeSize);
+									}
+									hdr.smapsSize += writtenSize;
 									memset(&tmp, 0, sizeof(MMAP_info));
 								}
 								else {
@@ -1061,6 +1103,13 @@ int readAndStoreSmaps(unsigned pid, bool createAnon)
 								expect_entry = 1;
 								expect_swap_pss = 0;
 								fprintf(fpMmap, "%lx-%lx %u %u %u %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.swapPss, tmp.perm, tmp.entryName);
+								writeSize = sprintf(mmapTmpArray, "%lx-%lx %u %u %u %s %s\n", 
+										tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.swapPss, tmp.perm, tmp.entryName);
+								if (writeSize > (writtenSize = fwrite((void *)&mmapTmpArray, 1, writeSize, memFP))) {
+									dbg(PRINT_MUST, "%s:%d Error storing %s, stored %lu instead of %lu\n", 
+											__FUNCTION__, __LINE__, strerror(errno), writtenSize, writeSize);
+								}
+								hdr.smapsSize += writtenSize;
 								memset(&tmp, 0, sizeof(MMAP_info));
 							}
 							else {
@@ -1130,6 +1179,13 @@ int readAndStoreSmaps(unsigned pid, bool createAnon)
 							skippedToLearn = 0;
 							dbg(PRINT_NOISE,"Read Swap Pss %u after skipping %u - %s", tmp.swapPss, skipToSwapPss, mmapTmpArray);
 							fprintf(fpMmap, "%lx-%lx %u %u %u %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.swapPss, tmp.perm, tmp.entryName);
+							writeSize = sprintf(mmapTmpArray, "%lx-%lx %u %u %u %s %s\n", 
+									tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.swapPss, tmp.perm, tmp.entryName);
+							if (writeSize > (writtenSize = fwrite((void *)&mmapTmpArray, 1, writeSize, memFP))) {
+								dbg(PRINT_MUST, "%s:%d Error storing %s, stored %lu instead of %lu\n", 
+										__FUNCTION__, __LINE__, strerror(errno), writtenSize, writeSize);
+							}
+							hdr.smapsSize += writtenSize;
 							memset(&tmp, 0, sizeof(MMAP_info));
 						}
 						else {
@@ -1161,6 +1217,8 @@ int readAndStoreSmaps(unsigned pid, bool createAnon)
 				}
 			}
 			fclose(smap);
+			hdr.pagemapIndex = ftell(memFP);
+			dbg(PRINT_ERROR, "%s: smapsSize %lx, hdr.pagemapIndex %lx\n", __FUNCTION__, hdr.smapsSize, hdr.pagemapIndex);
 		}
 		else {
 			PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
@@ -1415,9 +1473,12 @@ void readMmapWrap(unsigned pid)
 					fclose(fpHWalk);
 					return;
 				}
-				if (mmap_wrap_head_uty) {
+				if (prev) {
 					prev->next = tmp;
 				}
+				//else if (mmap_wrap_head_uty) {
+				//	mmap_wrap_head_uty->next = tmp;
+				//}
 				else {
 					mmap_wrap_head_uty = tmp;
 				}
@@ -1436,7 +1497,7 @@ void printMmapOrigin(void *startAddress, void *endAddress)
 			if (tmp->start_addr && (tmp->start_addr >= startAddress) && (tmp->end_addr <= endAddress)) {
 				char *binaryMapped = "";
 				void *offsetRA = getOffsetMapped(tmp->ra, &binaryMapped, mmapAll);
-				PRINT("\tMapped from 0x%p %s, at %s", (offsetRA)?offsetRA:tmp->ra, binaryMapped, ctime(&(tmp->time)));
+				PRINT("\tMapped from %p %s, at %s", (offsetRA)?offsetRA:tmp->ra, binaryMapped, ctime(&(tmp->time)));
 				//break; map entry might be coalesced. so continue
 			}
 			tmp = tmp->next;
@@ -1602,7 +1663,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 		PRINT("Heap+stack utilization against mmap'd--: %f %s\n", 
 				anonRSSTotal?(((double)(totalheapedrsspages*(PAGE_SIZE/1024)) + baseStack + pthreadStack_tstack + pthreadStack_etstack) / (double)anonRSSTotal)*100:0, "%");
 		if (stackInactive) {
-			PRINT("TOTAL STACK not mapped-----------------: %lu Bytes\n", stackInactive);
+			PRINT("TOTAL STACK not mapped-----------------: %lu KB of Virtual Size, (%lu Bytes)\n", stackInactive/1024, stackInactive);
 		}
 
 		PRINT("\n");
@@ -2273,6 +2334,18 @@ int main(int argc, char *argv[])
 				if (-1 != mq_send(mqsend, (const char *)&msgcmd, sizeof(msg_cmd), 0))
 				{
 #ifdef OPTIMIZE_MQ_TRANSFER
+					char heapwalkFile[128];
+					sprintf(heapwalkFile, "%s/memleakutil_%d%s.dat", rwPath, msgcmd.pid, fileSuffix?fileSuffix:"");
+					memFP = fopen(heapwalkFile, "wb");
+					if (NULL == memFP) {
+						dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
+						return 1;
+					}
+					memset(&hdr, 0, sizeof(HEADER));
+					hdr.version = atoi(MEMWRAP_MAJOR_VERSION) * 1000 + atoi(MEMWRAP_MINOR_VERSION);
+					fwrite(&hdr, sizeof(HEADER), 1, memFP);
+					hdr.walkedIndex = ftell(memFP);
+					dbg(PRINT_ERROR, "%s: sizeof(HEADER) %lu %lx, hdr.walkedIndex %lx\n", __FUNCTION__, sizeof(HEADER), sizeof(HEADER), hdr.walkedIndex);
 					if (!storeHeapwalk(mqrecv, msgcmd.cmd, msgcmd.pid, 0)) {
 						if (OFFLINE_STORE == offlineAnalysis || HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
 							dbg(PRINT_INFO, "%s: Getting pthread create intercepts cmd 0x%X on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
@@ -2287,6 +2360,7 @@ int main(int argc, char *argv[])
 							mappthreadStack(msgcmd.pid);
 						}
 						totalheapedrsspages = totalheapedswappages = 0;
+						fclose(memFP);
 						processHeapwalk(msgcmd.cmd, msgcmd.pid, threadid, 0, NULL, NULL, NULL, 0);
 						freeMMapList();
 						freePagemapDataStruct();

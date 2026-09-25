@@ -38,7 +38,7 @@ static void* test_thread_start_join(void *arg)
 		sprintf(timef, "%lu", timet);
 	}
 	sleep(2);
-	printf("[%ld] [%s] test thread started...join %s\n", pthread_self(), __FUNCTION__, timef);
+	printf("[%d] [%ld] [%s] test thread started...stack variable %p ...join %s\n", gettid(), pthread_self(), __FUNCTION__, &timet, timef);
 	return (void*)23;
 }
 static void* test_thread_start_detached(void *arg)
@@ -51,7 +51,7 @@ static void* test_thread_start_detached(void *arg)
 		sprintf(timef, "%lu", timet);
 	}
 
-	printf("[%ld] [%s] test thread started...detached %s\n", pthread_self(), __FUNCTION__, timef);
+	printf("[%d] [%ld] [%s] test thread started...stack variable %p ...detached %s\n", gettid(), pthread_self(), __FUNCTION__, &timet, timef);
 	sleep(5);
 	return NULL;
 }
@@ -65,7 +65,7 @@ static void* test_thread_start_return(void *arg)
 		sprintf(timef, "%lu", timet);
 	}
 
-	printf("[%ld] [%s] test thread started...exiting at %s\n", pthread_self(), __FUNCTION__, timef);
+	printf("[%d] [%ld] [%s] test thread started...stack variable %p ...exiting at %s\n", gettid(), pthread_self(), __FUNCTION__, &timet, timef);
 	return NULL;
 }
 
@@ -82,6 +82,7 @@ static void* test_thread_start(void *arg)
 #if defined(__USE_XOPEN2K) || defined(__USE_ISOC11) || defined(USE_DEPRECATED_MEMALIGN)
 	list_size += 5;
 #endif
+	printf("[%d] [%ld] [%s] test thread started...stack variable %p ...running\n", gettid(), pthread_self(), __FUNCTION__, &alloc);
 	//registerAtExit();
 
 	//saveHeapwalk("");
