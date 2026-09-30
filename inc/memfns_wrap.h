@@ -18,6 +18,7 @@
 #undef __USE_XOPEN2K
 #undef __USE_ISOC11
 
+#define MULTIPLE_FILES
 /*
  * Version Constants: 
  * Used for setting versionString[]

@@ -38,27 +38,39 @@ void sendPthreadIntercept(mqd_t mqsend)
 		while (tmp)
 		{
 			if (tmp->pthread_id) {
-				pthread_attr_t attr;
-				void *stackaddr;
-				size_t stacksize;
+				void *stackaddr = NULL;
+				int ret;
 
-				if (0 == pthread_getattr_np(tmp->pthread_id, &attr)) {
-					if (0 == pthread_attr_getstack(&attr, &stackaddr, &stacksize))  {
-						dbg(PRINT_INFO, "still alive, pthread %ld: Stack %p Size %lu\n", tmp->pthread_id, stackaddr, stacksize);
+				if (0 == (ret = pthread_tryjoin_np(tmp->pthread_id, &stackaddr))) { // On success=0, returns exit status of thread
+					//dbg(PRINT_INFO, "Thread [%ld] exited with code %p\n", tmp->pthread_id, stackaddr);
+					dbg(PRINT_ERROR, "Thread [%ld] exited with code %p\n", tmp->pthread_id, stackaddr);
+					tmp->pthread_id = 0;
+				}
+				else if (EINVAL != ret) {
+					pthread_attr_t attr;
+					if (0 == (ret = pthread_getattr_np(tmp->pthread_id, &attr))) {
+						/*size_t stacksize;
+						  if (0 == (ret = pthread_attr_getstack(&attr, &stackaddr, &stacksize)))  {
+							dbg(PRINT_INFO, "still alive, pthread %ld: Stack %p(%p) Size %lu\n", tmp->pthread_id, stackaddr, tmp->stack_addr_bottom, stacksize);
+						}
+						else {
+							dbg(PRINT_INFO, "[%s] pthread exited?? %ld: Stack %p Size %lu\n", strerror(ret), tmp->pthread_id, tmp->stack_addr_bottom, tmp->size);
+							tmp->pthread_id = 0; // TODO 0 can be valid id
+						}*/
+						if (0 != (ret = pthread_attr_destroy(&attr))) {
+							dbg(PRINT_ERROR, "%s: pthread_attr_destroy failed!! %d[%s]\n", __FUNCTION__, ret, strerror(ret));
+						}
 					}
 					else {
-						dbg(PRINT_ERROR, "pthread exited?? %ld: Stack %p Size %lu\n", tmp->pthread_id, tmp->stack_addr_bottom, tmp->size);
+						dbg(PRINT_ERROR, "%ld pthread exited?? pthread_attr_init failed [%d[%s]], Stack %p Size %lu\n", 
+								tmp->pthread_id, ret, strerror(ret), tmp->stack_addr_bottom, tmp->size);
 						tmp->pthread_id = 0; // TODO 0 can be valid id
-					}
-					if (pthread_attr_destroy(&attr)) {
-						dbg(PRINT_ERROR, "%s: pthread_attr_destroy failed!! %d[%s]\n", __FUNCTION__, errno, strerror(errno));
 					}
 				}
 				else {
-					dbg(PRINT_ERROR, "pthread_attr_init failed!! %d[%s]\n", errno, strerror(errno));
-					dbg(PRINT_ERROR, "%ld pthread exited?? Stack %p Size %lu\n", tmp->pthread_id, tmp->stack_addr_bottom, tmp->size);
-					tmp->pthread_id = 0; // TODO 0 can be valid id
+					dbg(PRINT_ERROR, "Thread [%ld] in detached state?? %d [%s]\n", tmp->pthread_id, ret, strerror(ret));
 				}
+				
 			}
 			msgresp.xfer[msgresp.numItemOrInfo].pthread_id = tmp->pthread_id;
 			msgresp.xfer[msgresp.numItemOrInfo].stack_addr_bottom = tmp->stack_addr_bottom;

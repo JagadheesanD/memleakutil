@@ -423,13 +423,11 @@ static void *thread_start(void *arg)
 #endif
 					mqsend = mq_open("/mq_util", O_WRONLY);
 					if (0 <= mqsend) {
-						dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
-						dbg(PRINT_ERROR, "%s: msgcmd 0x%X sending on mq %d\n", __FUNCTION__, msgcmd.cmd, mqsend);
+						dbg(PRINT_MSGQ, "%s: cmd 0x%x sending on mq %d\n", __FUNCTION__, msgcmd.cmd, mqsend);
 #ifdef OPTIMIZE_MQ_TRANSFER
 						heapwalk(mqsend, ~HEAPWALK_INCREMENT&msgcmd.cmd, NULL);
 						if (HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
-							//dbg(PRINT_MSGQ, "%s: sending on mq %d\n", __FUNCTION__, mqsend);
-							dbg(PRINT_ERROR, "%s: cmd: 0x%x sending pthread intercepts on mq %d\n", __FUNCTION__, msgcmd.cmd, mqsend);
+							dbg(PRINT_MSGQ, "%s: cmd: 0x%x sending pthread intercepts on mq %d\n", __FUNCTION__, msgcmd.cmd, mqsend);
 							sndPthreadIntercepts(mqsend);
 #if defined(INTERCEPT_MMAP)
 							sndMmapIntercepts(mqsend);

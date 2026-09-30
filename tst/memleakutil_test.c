@@ -202,13 +202,16 @@ void spawntestrunthread()
 	}
 
         pthread_create(&ptd, &attr, &test_thread_start, NULL);
+	printf("%s: test_thread_start %ld created\n", __FUNCTION__, ptd);
         pthread_create(&ptd, &attr, &test_thread_start_return, NULL);
+	printf("%s: test_thread_start_return %ld created\n", __FUNCTION__, ptd);
         pthread_create(&ptd, &attr, &test_thread_start_detached, NULL);
-	sleep(2);
+	printf("%s: test_thread_start_detached %ld created\n", __FUNCTION__, ptd);
+	sleep(1);
 	pthread_detach(ptd);
         pthread_create(&ptd, &attr, &test_thread_start_join, NULL);
-	int *ret = NULL;
-	pthread_join(ptd, (void**)&ret);
+	printf("%s: test_thread_start_join %ld created\n", __FUNCTION__, ptd);
+	printf("%s: pthread_join, ret value %d\n", __FUNCTION__, pthread_join(ptd, NULL));
 }
 
 #ifndef MAINTAIN_SINGLE_LIST

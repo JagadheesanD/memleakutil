@@ -460,20 +460,35 @@ void mappthreadStack(unsigned pid)
 {
 	msg_resp msgresp;
 	int msgsize = sizeof(msg_resp);
+	unsigned totalMsgs = 0;
+#ifdef MULTIPLE_FILES
 	char tmp[128]; 
 	FILE *fpIntercept;
-	unsigned totalMsgs = 0;
-
 	sprintf(tmp, "%s/hps_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
 	fpIntercept = fopen(tmp, "rb");
 
 	if (fpIntercept)
+#else
+	unsigned totalSectionSize = hdr.stackInterceptSize;
+	unsigned totalSizeRead = 0;
+	fseek(memFP, hdr.stackInterceptIndex, SEEK_SET);
+	if (totalSectionSize)
+#endif
 	{
 		stackInactive = 0;
 		unsigned msgIndex;
-		do
+#ifdef MULTIPLE_FILES
+		while (msgsize)
+#else
+		while (totalSectionSize > totalSizeRead)
+#endif
 		{
+#ifdef MULTIPLE_FILES
 			msgsize = fread(&msgresp, 1, sizeof(msgresp), fpIntercept);
+#else
+			msgsize = fread(&msgresp, 1, sizeof(msgresp), memFP);
+				totalSizeRead += msgsize; // Move me inside the if
+#endif
 			if (msgsize) {
 				if (msgresp.numItemOrInfo)
 				{
@@ -491,8 +506,8 @@ void mappthreadStack(unsigned pid)
 							void *ptr = msgresp.xfer[msgIndex].stack_addr_bottom;
 							unsigned size = msgresp.xfer[msgIndex].size;
 							unsigned long stack_addr_bottom = (unsigned long)ptr; //msgresp.xfer[msgIndex].stack_addr_bottom;
-							dbg(PRINT_NOISE, "Checking stack %lx size %lx in [anon], now %s, %lx:%lx with rss %u\n", 
-									stack_addr_bottom, msgresp.xfer[msgIndex].size, tmpanon->entryName, tmpanon->startAddress, tmpanon->endAddress, tmpanon->rss);
+							dbg(PRINT_NOISE, "Checking stack %lx:%lx size %x in [anon], now %s, %lx:%lx with rss %u\n", 
+									stack_addr_bottom, stack_addr_bottom+size, size, tmpanon->entryName, tmpanon->startAddress, tmpanon->endAddress, tmpanon->rss);
 							if ((stack_addr_bottom == tmpanon->startAddress) && ((stack_addr_bottom+size) == tmpanon->endAddress)) {
 								if (!strcmp(tmpanon->entryName, "[anon]")) {
 									strcpy(tmpanon->entryName, (msgresp.xfer[msgIndex].pthread_id)? "[tstack]" : "[etstack]");
@@ -510,8 +525,8 @@ void mappthreadStack(unsigned pid)
 								}
 								dbg(PRINT_INFO, "Found stack %lx size %lu in [anon], now %s, %lx:%lx with rss %u\n", 
 									stack_addr_bottom, msgresp.xfer[msgIndex].size, tmpanon->entryName, tmpanon->startAddress, tmpanon->endAddress, tmpanon->rss);
-								rssvalue = tmpanon->rss;
-								swapvalue = tmpanon->swapPss;
+								rssvalue = tmpanon->rss * 1024;
+								swapvalue = tmpanon->swapPss * 1024;
 								break;
 							} else if ((stack_addr_bottom >= tmpanon->startAddress) && ((stack_addr_bottom+size) <= tmpanon->endAddress)) {
 								if (strlen(tmpanon->entryName) < (256 - 9)) {
@@ -621,8 +636,10 @@ void mappthreadStack(unsigned pid)
 					} // while (msgIndex < msgCount) 
 				}
 			}
-		} while (msgsize);
+		}
+#ifdef MULTIPLE_FILES
 		fclose(fpIntercept);
+#endif
 	}
 	else
 	{
@@ -718,18 +735,36 @@ void storeAnonHeapStackPagemap(int pid)
 int readStoredPagemap(int pid)
 {
 	char buf[256];
+#ifdef MULTIPLE_FILES
 	sprintf(buf, "%s/hpp_%d%s.txt", rwPath, pid, fileSuffix?fileSuffix:"");
 	FILE *fp = fopen(buf, "r");
-	if (fp) {
+	if (fp) 
+#else
+	unsigned totalSectionSize = hdr.pagemapSize;
+	unsigned totalSizeRead = 0;
+	fseek(memFP, hdr.pagemapIndex, SEEK_SET);
+	if (totalSectionSize)
+#endif
+	{
 		unsigned pageinfo;
 		unsigned long addr;
-		while (fgets(buf, 256, fp)) {
+#ifdef MULTIPLE_FILES
+		while (fgets(buf, 256, fp)) 
+#else
+		while ((totalSectionSize > totalSizeRead) && fgets(buf, 256, memFP)) 
+#endif
+		{
+#ifndef MULTIPLE_FILES
+			totalSizeRead += strlen(buf);
+#endif
 			if (2 <= sscanf(buf, "0x%lx %u\n", &addr, &pageinfo)) {
 				addPagemapToDataStruct(addr,  // PAGE_NOT_PRESENT shouldn't happen, except for the first address
 						(pageinfo & 0xC)? ((pageinfo & 0x8)? PAGE_PRESENT : PAGE_SWAPPED) : PAGE_NOT_PRESENT);
 			}
 		}
+#ifdef MULTIPLE_FILES
 		fclose(fp);
+#endif
 	}
 	else {
 		PRINT("%s: %s fopen failed %s\n", __FUNCTION__, buf, strerror(errno));
@@ -921,18 +956,36 @@ unsigned getASLRStatus()
 int readStoredSmaps(unsigned pid, unsigned createMap)
 {
 	char mmapTmpArray[1024]; /* Used to read entries from /proc/pid/smaps...big enough to hold large entries */
+#ifndef MULTIPLE_FILES
+	unsigned totalSectionSize = hdr.smapsSize;
+	unsigned totalSizeRead = 0;
+	fseek(memFP, hdr.smapsIndex, SEEK_SET);
+	if (totalSectionSize) 
+#else
 	FILE *fpMmap;
-	
 	sprintf(mmapTmpArray, "%s/smaps_%d%s.txt", rwPath, pid, fileSuffix?fileSuffix:"");
 	fpMmap = fopen(mmapTmpArray, "r");
-
-	if (NULL != fpMmap) {
+	if (NULL != fpMmap) 
+#endif
+	{
 		dbg(PRINT_INFO, "smaps file available, %s\n", mmapTmpArray);
+#ifdef MULTIPLE_FILES
 		fgets(mmapTmpArray, 1024, fpMmap);
+#else
+		fgets(mmapTmpArray, 1024, memFP);
+#endif
 		// TODO check return status
 		sscanf(mmapTmpArray, "ASLR: %u Time: %*s\n", &isASLREnabled);
 		MMAP_info tmp = {0};
-		while (fgets(mmapTmpArray, 1024, fpMmap)) {
+#ifdef MULTIPLE_FILES
+		while (fgets(mmapTmpArray, 1024, fpMmap)) 
+#else
+		while((totalSectionSize > totalSizeRead) && fgets(mmapTmpArray, 1024, memFP))
+#endif
+		{
+#ifndef MULTIPLE_FILES
+			totalSizeRead += strlen(mmapTmpArray);
+#endif
 			// Checking for reading 6 entries, since anon entries will be unnamed, thus reading only 6
 			if (6 <= sscanf(mmapTmpArray, "%lx-%lx %u %u %u %s %s", &tmp.startAddress, &tmp.endAddress, &tmp.size, &tmp.rss, &tmp.swapPss, tmp.perm, tmp.entryName)) {
 				dbg(PRINT_NOISE, "Read %lx-%lx %u %u %u %s %s from %s", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.swapPss, tmp.perm, tmp.entryName, mmapTmpArray);
@@ -954,7 +1007,9 @@ int readStoredSmaps(unsigned pid, unsigned createMap)
 				memset(&tmp, 0, sizeof(MMAP_info));
 			}
 		}
+#ifdef MULTIPLE_FILES
 		fclose(fpMmap);
+#endif
 	}
 	else {
 		PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
@@ -1525,7 +1580,7 @@ void printMmapOrigin(void *startAddress, void *endAddress)
 void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int *listIndex, MMAP_info *mmapIn, bool analyze)
 {
 	msg_resp msgresp;
-	char heapwalkFile[32];
+	char heapwalkFile[64];
 
 	dbg(PRINT_NOISE, "%s: cmd %d pid %d tid %d analyze %d\n", __FUNCTION__, cmd, pid, tid, analyze);
 	if (HEAPWALK_MMAP_ENTRIES == cmd)
@@ -1671,15 +1726,20 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 	}
 	else
 	{
-		sprintf(heapwalkFile, "%s/hp%s_%d%s.dat", rwPath, (HEAPWALK_FULL == cmd)?"f":"", pid, fileSuffix?fileSuffix:"");
-
 		unsigned totalMsgs = 0;
+#ifdef MULTIPLE_FILES
+		sprintf(heapwalkFile, "%s/hp%s_%d%s.dat", rwPath, (HEAPWALK_FULL == cmd)?"f":"", pid, fileSuffix?fileSuffix:"");
 		FILE *fpHWalk = fopen(heapwalkFile, "rb");
 		if (NULL == fpHWalk)
 		{
 			dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
 		}
 		else
+#else
+		unsigned totalSectionSize = (HEAPWALK_FULL == cmd)? hdr.walkedSize : hdr.walkSize;
+		unsigned totalSizeRead = 0;
+		fseek(memFP, (HEAPWALK_FULL == cmd)? hdr.walkedIndex : hdr.walkIndex, SEEK_SET);
+#endif
 		{
 			/* to be tested and added later
 			if (analyze) {
@@ -1694,14 +1754,25 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 				}
 			}
 			*/
-			int msgsize;
+			int msgsize = sizeof(msgresp);
 			unsigned msgSeq = 0;
 			unsigned msgIndex;
 			unsigned long long threadAllocationOnly = 0;
-			do
+#ifdef MULTIPLE_FILES
+			while (msgsize)
+#else
+			while (totalSectionSize > totalSizeRead)
+#endif
 			{
+#ifdef MULTIPLE_FILES
 				msgsize = fread(&msgresp, 1, sizeof(msgresp), fpHWalk);
+#else
+				msgsize = fread(&msgresp, 1, sizeof(msgresp), memFP);
+#endif
 				if (msgsize) { // Check if atleast greater than a minimum possible?
+#ifndef MULTIPLE_FILES
+					totalSizeRead += msgsize;
+#endif
 
 					if (msgresp.numItemOrInfo) {
 
@@ -1885,7 +1956,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 						resp[*listIndex].size = 0;
 					}
 				}
-			} while (msgsize);
+			} 
 
 			if (!isSelfTest && totalMsgs && (NULL == mmapIn) && (HEAPWALK_MMAP_ENTRIES != baseCmd)) 
 			{
@@ -1927,7 +1998,9 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 					}
 				}
 			}
+#ifdef MULTIPLE_FILES
 			fclose(fpHWalk);
+#endif
 		}
 
 		if (HEAPWALK_FULL == cmd)
@@ -2360,11 +2433,15 @@ int main(int argc, char *argv[])
 							mappthreadStack(msgcmd.pid);
 						}
 						totalheapedrsspages = totalheapedswappages = 0;
+						fseek(memFP, 0, SEEK_SET);
+						fwrite(&hdr, sizeof(HEADER), 1, memFP);
 						fclose(memFP);
+						memFP = fopen(heapwalkFile, "rb");
 						processHeapwalk(msgcmd.cmd, msgcmd.pid, threadid, 0, NULL, NULL, NULL, 0);
 						freeMMapList();
 						freePagemapDataStruct();
-						if (!offlineAnalysis) {
+						//if (!offlineAnalysis) 
+						{
 							char filename[128];
 							if (OFFLINE_STORE == offlineAnalysis) {
 								PRINT("Saved below files:\n");
