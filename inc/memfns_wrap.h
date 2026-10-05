@@ -32,8 +32,7 @@
 /* MEMWRAP_COMMANDS_VERSION is 8 bit unsigned - shouldn't be greater than 255 */
 #define MEMWRAP_COMMANDS_VERSION 4
 
-/* Below is part of heapwalk file header hp_walk_header, used to check compatibility. 
- * Increment in case msg_resp structure changes. It's 8 bit unsigned, max 255
+/* Below is part of file header HEADER, used to check compatibility. 
  * */
 #define MEMWRAP_MSG_RESP_VERSION 1
 

@@ -643,7 +643,11 @@ void mappthreadStack(unsigned pid)
 	}
 	else
 	{
+#ifdef MULTIPLE_FILES
 		dbg(PRINT_MUST, "%s: %s open error, %s\n", __FUNCTION__, tmp, strerror(errno));
+#else
+		dbg(PRINT_MUST, "%s: Section size is 0\n", __FUNCTION__);
+#endif
 	}
 }
 
@@ -1580,7 +1584,6 @@ void printMmapOrigin(void *startAddress, void *endAddress)
 void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int *listIndex, MMAP_info *mmapIn, bool analyze)
 {
 	msg_resp msgresp;
-	char heapwalkFile[64];
 
 	dbg(PRINT_NOISE, "%s: cmd %d pid %d tid %d analyze %d\n", __FUNCTION__, cmd, pid, tid, analyze);
 	if (HEAPWALK_MMAP_ENTRIES == cmd)
@@ -1728,6 +1731,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 	{
 		unsigned totalMsgs = 0;
 #ifdef MULTIPLE_FILES
+		char heapwalkFile[64];
 		sprintf(heapwalkFile, "%s/hp%s_%d%s.dat", rwPath, (HEAPWALK_FULL == cmd)?"f":"", pid, fileSuffix?fileSuffix:"");
 		FILE *fpHWalk = fopen(heapwalkFile, "rb");
 		if (NULL == fpHWalk)
@@ -1741,19 +1745,6 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 		fseek(memFP, (HEAPWALK_FULL == cmd)? hdr.walkedIndex : hdr.walkIndex, SEEK_SET);
 #endif
 		{
-			/* to be tested and added later
-			if (analyze) {
-				// check version
-				hp_walk_header hpwHdr = {MEMWRAP_MSG_RESP_VERSION,0};
-
-				if (fread(&hpwHdr, 1, sizeof(hpwHdr), fpHWalk)) {
-					if (MEMWRAP_MSG_RESP_VERSION != hpwHdr.version) {
-						PRINT("Version mismatch, heapwalk file %u vs uty %u\n", hpwHdr.version, MEMWRAP_MSG_RESP_VERSION);
-					}
-					PRINT("%s: Total entries: %lu\n", heapwalkFile, hpwHdr.totalEntries);
-				}
-			}
-			*/
 			int msgsize = sizeof(msgresp);
 			unsigned msgSeq = 0;
 			unsigned msgIndex;
@@ -2016,9 +2007,66 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 }
 #endif
 
+typedef enum {
+	OPEN_FOR_READ,
+	OPEN_FOR_WRITE,
+	UPDATE_HEADER_AND_CLOSE,
+	CLOSE_FILE
+}OUTPUT_FILE;
+
+int outputFile(int pid, OUTPUT_FILE opr)
+{
+	int ret = 0;
+	if (UPDATE_HEADER_AND_CLOSE <= opr) {
+		if (memFP) {
+			if (UPDATE_HEADER_AND_CLOSE == opr) {
+				fseek(memFP, 0, SEEK_SET);
+				fwrite(&hdr, sizeof(HEADER), 1, memFP);
+			}
+			fclose(memFP);
+			memFP = NULL;
+		}
+	}
+	else {
+		char heapwalkFile[128];
+		int ret = snprintf(heapwalkFile, sizeof(heapwalkFile) - 1, "%s/memleakutil_%d%s.dat", rwPath, pid, fileSuffix?fileSuffix:"");
+		if (0 < ret) {
+			if (ret >= sizeof(heapwalkFile) - 1) {
+				dbg(PRINT_ERROR, "File name truncated, %s\n", heapwalkFile);
+			}
+			memFP = fopen(heapwalkFile, (OPEN_FOR_READ == opr)? "rb":"wb");
+			if (memFP) {
+				unsigned verCheck = atoi(MEMWRAP_MAJOR_VERSION) * 10000 + atoi(MEMWRAP_MINOR_VERSION) * 100 + MEMWRAP_MSG_RESP_VERSION;
+				if (OPEN_FOR_WRITE == opr) {
+					memset(&hdr, 0, sizeof(HEADER));
+					hdr.version = verCheck;
+					fwrite(&hdr, sizeof(HEADER), 1, memFP);
+					hdr.walkedIndex = ftell(memFP);
+					dbg(PRINT_INFO, "%s: sizeof(HEADER) %lu %lx, hdr.walkedIndex %lx\n", __FUNCTION__, sizeof(HEADER), sizeof(HEADER), hdr.walkedIndex);
+				}
+				else {
+					fread(&hdr, 1, sizeof(HEADER), memFP);
+					if (verCheck != hdr.version) {
+						dbg(PRINT_ERROR, "Version mismatch, %u:%u\n", hdr.version, verCheck);
+						ret = 1;
+					}
+				}
+			}
+			else {
+				dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
+				ret = 1;
+			}
+		}
+		else {
+			dbg(PRINT_MUST, "%s snprintf error, %s\n", __FUNCTION__, strerror(errno));
+			ret = 1;
+		}
+	}
+	return ret;
+}
 void performOfflineAnalysis(int pid) //, char *fileSuffix)
 {
-	if (!readStoredSmaps(pid, MMAP_ANON)) {
+	if (!outputFile(pid, OPEN_FOR_READ) && !readStoredSmaps(pid, MMAP_ANON)) {
 		if (readStoredPagemap(pid)) {
 			dbg(PRINT_MUST, "Error reading Pagemap...physical size may not be available\n");
 			sleep(3);	
@@ -2039,6 +2087,9 @@ void performOfflineAnalysis(int pid) //, char *fileSuffix)
 		freePagemapDataStruct();
 		pid = tid = cmd = -1;
 		interactive = 0;
+	}
+	else {
+		dbg(PRINT_ERROR, "%s: Error processing\n", __FUNCTION__);
 	}
 }
 
@@ -2224,6 +2275,7 @@ void flushInputStream()
 	char c;
 	while ('\n' != (c = getchar()) && EOF != c);
 }
+
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <unistd.h>
@@ -2407,19 +2459,7 @@ int main(int argc, char *argv[])
 				if (-1 != mq_send(mqsend, (const char *)&msgcmd, sizeof(msg_cmd), 0))
 				{
 #ifdef OPTIMIZE_MQ_TRANSFER
-					char heapwalkFile[128];
-					sprintf(heapwalkFile, "%s/memleakutil_%d%s.dat", rwPath, msgcmd.pid, fileSuffix?fileSuffix:"");
-					memFP = fopen(heapwalkFile, "wb");
-					if (NULL == memFP) {
-						dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
-						return 1;
-					}
-					memset(&hdr, 0, sizeof(HEADER));
-					hdr.version = atoi(MEMWRAP_MAJOR_VERSION) * 1000 + atoi(MEMWRAP_MINOR_VERSION);
-					fwrite(&hdr, sizeof(HEADER), 1, memFP);
-					hdr.walkedIndex = ftell(memFP);
-					dbg(PRINT_ERROR, "%s: sizeof(HEADER) %lu %lx, hdr.walkedIndex %lx\n", __FUNCTION__, sizeof(HEADER), sizeof(HEADER), hdr.walkedIndex);
-					if (!storeHeapwalk(mqrecv, msgcmd.cmd, msgcmd.pid, 0)) {
+					if (!outputFile(msgcmd.pid, OPEN_FOR_WRITE) && !storeHeapwalk(mqrecv, msgcmd.cmd, msgcmd.pid, 0)) {
 						if (OFFLINE_STORE == offlineAnalysis || HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
 							dbg(PRINT_INFO, "%s: Getting pthread create intercepts cmd 0x%X on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
 							getStackIntercepts(mqrecv, msgcmd.pid);
@@ -2433,14 +2473,12 @@ int main(int argc, char *argv[])
 							mappthreadStack(msgcmd.pid);
 						}
 						totalheapedrsspages = totalheapedswappages = 0;
-						fseek(memFP, 0, SEEK_SET);
-						fwrite(&hdr, sizeof(HEADER), 1, memFP);
-						fclose(memFP);
-						memFP = fopen(heapwalkFile, "rb");
+						outputFile(msgcmd.pid, UPDATE_HEADER_AND_CLOSE);
+						outputFile(msgcmd.pid, OPEN_FOR_READ);
 						processHeapwalk(msgcmd.cmd, msgcmd.pid, threadid, 0, NULL, NULL, NULL, 0);
 						freeMMapList();
 						freePagemapDataStruct();
-						//if (!offlineAnalysis) 
+						if (0) // (!offlineAnalysis) 
 						{
 							char filename[128];
 							if (OFFLINE_STORE == offlineAnalysis) {
@@ -2470,6 +2508,7 @@ int main(int argc, char *argv[])
 					} else {
 						dbg(PRINT_ERROR, "storeHeapwalk failed\n");
 					}
+					outputFile(msgcmd.pid, UPDATE_HEADER_AND_CLOSE);
 #else
 					msg_resp msgresp;
 					unsigned int prio;
