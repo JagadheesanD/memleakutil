@@ -18,7 +18,6 @@
 #undef __USE_XOPEN2K
 #undef __USE_ISOC11
 
-#define MULTIPLE_FILES
 /*
  * Version Constants: 
  * Used for setting versionString[]
@@ -283,6 +282,15 @@ typedef struct mq_msg_recv
 	LISTxfer xfer[MAX_MSG_XFER];
 #endif
 } msg_resp;
+
+typedef enum {
+        OPEN_FOR_READ,
+        OPEN_FOR_WRITE,
+        UPDATE_HEADER_AND_CLOSE,
+        CLOSE_FILE
+}OUTPUT_FILE;
+
+int outputFile(int pid, OUTPUT_FILE opr);
 
 #define QUEUE_PERMISSION ((int)(0666))
 #define QUEUE_READ_PERMISSION ((int)(0444))

@@ -325,9 +325,11 @@ void sendAndRecv(mqd_t mq, int cmd, LIST *resp, int listSize, int initVal)
 			}
 #else
 			sleep(1);
+			outputFile(msgcmd.pid, OPEN_FOR_WRITE);
 			storeHeapwalk(mq, msgcmd.cmd, msgcmd.pid, 1);
 			int xferIndex = 0;
 			processHeapwalk(msgcmd.cmd, msgcmd.pid, 0, 1, resp, &xferIndex, NULL, 0);
+			outputFile(msgcmd.pid, CLOSE_FILE);
 #endif
 			}
 			break;
@@ -1507,6 +1509,7 @@ void runListTests(mqd_t mq)
 	}
 	else {
 		PRINT("\tFail\n");
+		PRINT("\tShowing %p, %p??\n", (int*)resp[0].ptr, (int*)resp[1].ptr);
 		failed++;
 	}
 

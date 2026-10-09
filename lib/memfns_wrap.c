@@ -476,6 +476,24 @@ static void *thread_start(void *arg)
 					dbg(PRINT_MSGQ, "Calling malloc_stats(). cmd %d\n", msgcmd.cmd);
 					malloc_stats();
 					PRINT("\n");
+#if defined(SELF_TEST)
+					if (1) {
+						static char *gbListInitialAlloc1 = NULL;
+						static char *gbListInitialAlloc2 = NULL;
+						if (NULL == gbListInitialAlloc1) {
+							gbListInitialAlloc1 = mmap(NULL, 1*1024*1024, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);sleep(1);
+						}
+						else if (NULL == gbListInitialAlloc2){
+							gbListInitialAlloc2 = mmap(NULL, 2*1024*1024, PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);sleep(1);
+						}
+						else {
+							munmap(gbListInitialAlloc2, 2*1024*1024);
+							gbListInitialAlloc2 = NULL; sleep(1);
+							munmap(gbListInitialAlloc1, 1*1024*1024);
+							gbListInitialAlloc1 = NULL; sleep(1);
+						}
+					}
+#endif
 					break;
 				default:
 					dbg(PRINT_ERROR, "Invalid cmd 0x%x received\n", msgcmd.cmd);
