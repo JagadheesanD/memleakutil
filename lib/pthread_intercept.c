@@ -24,8 +24,6 @@ STATIC pthread_mutex_t pthreadlock;
 void sendPthreadIntercept(mqd_t mqsend)
 {
 	msg_resp msgresp;
-	// Plan is to write this as header for checking compatibility during offline analysis
-	hp_walk_header hpwHdr = {MEMWRAP_MSG_RESP_VERSION,0};
 
 	pthread_mutex_lock(&pthreadlock);
 	LIST_pthread *tmp = pthreadhead;
@@ -77,7 +75,6 @@ void sendPthreadIntercept(mqd_t mqsend)
 			msgresp.xfer[msgresp.numItemOrInfo].start_routine = tmp->start_routine;
 			msgresp.xfer[msgresp.numItemOrInfo].size = tmp->size;
 			msgresp.xfer[msgresp.numItemOrInfo++].seconds = tmp->time;
-			hpwHdr.totalEntries++;
 
 			// Check if we've reached max size to transfer
 			if (MAX_MSG_XFER <= msgresp.numItemOrInfo) {
@@ -122,6 +119,7 @@ void appendItemToPthreadList(pthread_t id, void *addr, unsigned long size, void 
 		listPtr->size = size;
 		listPtr->start_routine = start_routine;
 		listPtr->time = time(0);
+		listPtr->next = NULL;
 		pthread_mutex_lock(&pthreadlock);
 		if (pthreadtail) {
 			pthreadtail->next = listPtr;

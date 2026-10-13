@@ -250,8 +250,6 @@ char gInitialAlloc_buffer[G_INITIAL_ALLOC_SIZE];
 void sndMmapIntercepts(mqd_t mqsend)
 {
 	msg_resp msgresp;
-	// Plan is to write this as header for checking compatibility during offline analysis
-	hp_walk_header hpwHdr = {MEMWRAP_MSG_RESP_VERSION,0};
 
 	LIST_mmap_wrap *tmp = mmap_wrap_head;
 
@@ -266,7 +264,6 @@ void sndMmapIntercepts(mqd_t mqsend)
 			msgresp.xfer[msgresp.numItemOrInfo].start_routine = tmp->ra;
 			msgresp.xfer[msgresp.numItemOrInfo].size = tmp->end_addr - tmp->start_addr;
 			msgresp.xfer[msgresp.numItemOrInfo++].seconds = tmp->time;
-			hpwHdr.totalEntries++;
 
 			// Check if we've reached max size to transfer
 			if (MAX_MSG_XFER <= msgresp.numItemOrInfo) {
@@ -918,23 +915,12 @@ void heapwalkReset()
 void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 {
 	msg_resp msgresp;
-	hp_walk_header hpwHdr = {MEMWRAP_MSG_RESP_VERSION,0};
 	LIST *tmp;
 
 	dbg(PRINT_INFO, "%s+: hpfmemhead [%p] hpwmemhead [%p] hpfmemtail [%p]\n", __FUNCTION__, hpfmemhead, hpwmemhead, hpfmemtail);
 
 	msgresp.numItemOrInfo = HEAPWALK_EMPTY;
-	/* to be tested and added
-	FILE *fp = fopen(fname, "wb");
-	if (NULL != fp) {
-		fseek(fp, 0, SEEK_SET);
-		if (!fwrite((void *)&hpwHdr, sizeof(hpwHdr), 1, fp)) {
-			dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
-		}
-		fclose(fp);
-	}
-	dbg(PRINT_ERROR, "1Total entries: %lu, version: %u\n", hpwHdr.totalEntries, hpwHdr.version);
-	*/
+
 	pthread_mutex_lock(&lock);
 	if (walkAll)
 	{
@@ -972,7 +958,6 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 				msgresp.xfer[msgresp.numItemOrInfo].tid = tmp->tid;
 				msgresp.xfer[msgresp.numItemOrInfo].seconds = tmp->seconds;
 				msgresp.numItemOrInfo++;
-				hpwHdr.totalEntries++;
 				dbg(PRINT_INFO, "%s: Processed %d walked items for sending\n", __FUNCTION__, msgresp.numItemOrInfo);
 				if (MAX_MSG_XFER <= msgresp.numItemOrInfo)
 				{
@@ -1046,19 +1031,6 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 		}
 		if (fname) {
 			pthread_mutex_unlock(&lock);
-			/* To be tested and added later
-			if (hpwHdr.totalEntries) {
-				fp = fopen(fname, "ab");
-				if (NULL != fp) {
-					fseek(fp, 0, SEEK_SET);
-					if (!fwrite((void *)&hpwHdr, sizeof(hpwHdr), 1, fp)) {
-						dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
-					}
-					fclose(fp);
-				}
-			}
-			*/
-			dbg(PRINT_INFO, "2Total entries: %lu, version: %u\n", hpwHdr.totalEntries, hpwHdr.version);
 			return;
 		}
 	} // if (walkAll)
@@ -1083,7 +1055,6 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 			msgresp.xfer[msgresp.numItemOrInfo].tid = tmp->tid;
 			msgresp.xfer[msgresp.numItemOrInfo].seconds = tmp->seconds;
 			msgresp.numItemOrInfo++;
-			hpwHdr.totalEntries++;
 			dbg(PRINT_INFO, "%s: Processed %d unwalked items for sending\n", __FUNCTION__, msgresp.numItemOrInfo);
 			if (MAX_MSG_XFER <= msgresp.numItemOrInfo)
 			{
@@ -1199,19 +1170,6 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 		}
 	}
 	pthread_mutex_unlock(&lock);
-	/*
-	if (hpwHdr.totalEntries) {
-		fp = fopen(fname, "ab");
-		if (NULL != fp) {
-			fseek(fp, 0, SEEK_SET);
-			if (!fwrite((void *)&hpwHdr, sizeof(hpwHdr), 1, fp)) {
-				dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
-			}
-			fclose(fp);
-		}
-	}
-	*/
-	dbg(PRINT_INFO, "3Total entries: %lu, version: %u\n", hpwHdr.totalEntries, hpwHdr.version);
 	dbg(PRINT_NOISE, "%s: Exit\n", __FUNCTION__);
 	dbg(PRINT_INFO, "%s-: hpfmemhead [%p] hpwmemhead [%p] hpfmemtail [%p]\n", __FUNCTION__, hpfmemhead, hpwmemhead, hpfmemtail);
 }

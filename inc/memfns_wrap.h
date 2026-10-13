@@ -30,15 +30,7 @@
 
 /* MEMWRAP_COMMANDS_VERSION is 8 bit unsigned - shouldn't be greater than 255 */
 #define MEMWRAP_COMMANDS_VERSION 4
-
-/* Below is part of file header HEADER, used to check compatibility. 
- * */
 #define MEMWRAP_MSG_RESP_VERSION 1
-
-typedef struct hp_header {
-	int version; /* for now, using only last 8 bits for for msg_resp version */
-	unsigned long totalEntries;
-} hp_walk_header;
 
 /* Memory Management Options */
 #define PREPEND_LISTDATA /* Allocate extra for holding the data to avoid additional allocation */
