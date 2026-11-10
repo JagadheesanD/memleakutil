@@ -30,7 +30,7 @@ libmemfnswrap_la_include_HEADERS = inc/memfns_wrap.h
 libpthreadintercept_la_SOURCES = ${top_srcdir}/lib/pthread_intercept.c
 libpthreadintercept_la_LDFLAGS = -shared -fPIC -Wl,-soname,libpthreadintercept.so.0
 libpthreadintercept_la_includedir = $(includedir)
-libpthreadintercept_la_include_HEADERS = inc/memfns_wrap.h
+#libpthreadintercept_la_include_HEADERS = inc/memfns_wrap.h
 
 bin_PROGRAMS = memleakutil
 memleakutil_SOURCES = \
