@@ -64,8 +64,6 @@
 #define INTERCEPT_MMAP_FOR_CMD 0
 #endif
 
-//#define PROCESS_PAGEMAP_IN_LIB
-
 /* Static for internal testing */
 #ifndef SELF_TEST
 #define STATIC static
@@ -80,6 +78,23 @@ enum {
 	FLAGS_BIT1_REALLOC = 2,
 	FLAGS_MEMALIGN // Let it get 1 more than last entry
 };
+
+typedef struct __attribute__((packed)) header {
+	int version;
+	unsigned walkedIndex; // 32 bit seek should be good enough..it can fail for files beyond 4GB
+	unsigned walkedSize;
+	unsigned walkIndex;
+	unsigned walkSize;
+	unsigned stackInterceptIndex;
+	unsigned stackInterceptSize;
+	unsigned mmapInterceptIndex;
+	unsigned mmapInterceptSize;
+	unsigned smapsIndex;
+	unsigned smapsSize;
+	unsigned pagemapIndex;
+	unsigned pagemapSize;
+	unsigned crc32;
+}HEADER;
 
 /* Data Structures */
 struct list;
@@ -297,7 +312,7 @@ void *memalign(size_t alignment, size_t size);
 #endif
 
 #ifdef OPTIMIZE_MQ_TRANSFER
-void heapwalk(mqd_t mqsend, bool walkAll, char *fname);
+void heapwalk(mqd_t mqsend, bool walkAll, FILE *fp);
 int saveHeapwalk(char *suffix);
 void registerAtExit(void);
 #else

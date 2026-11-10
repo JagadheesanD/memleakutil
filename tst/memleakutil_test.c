@@ -83,12 +83,18 @@ static void* test_thread_start(void *arg)
 	list_size += 5;
 #endif
 	printf("[%d] [%ld] [%s] test thread started...stack variable %p ...running\n", gettid(), pthread_self(), __FUNCTION__, &alloc);
-	//registerAtExit();
+	registerAtExit();
 
-	//saveHeapwalk("");
-	//saveHeapwalk(NULL);
+#ifdef SELF_TEST2
+	char *tstTransitionToGlibcBuff = malloc(32);
+	strcpy(tstTransitionToGlibcBuff, "tstTransitionToGlibcBuff");
+	printf("tstTransitionToGlibcBuff = %p [%s]\n", tstTransitionToGlibcBuff, tstTransitionToGlibcBuff);
+#endif
+	saveHeapwalk("");
+	saveHeapwalk(NULL);
 	// Let main thread completes it's init
-	sleep(5);  //saveHeapwalk("init");
+	sleep(3);  
+	saveHeapwalk("init");
 	while (1)
 	{
 		if (alloc) {
@@ -165,6 +171,11 @@ static void* test_thread_start(void *arg)
 			else {
 				if (2 == alloc) { // first time, do dlsym
 					load_libc_functions();
+#ifdef SELF_TEST2
+				tstTransitionToGlibcBuff = realloc(tstTransitionToGlibcBuff, 40);
+				printf("After realloc tstTransitionToGlibcBuff = %p, [%s]\n", tstTransitionToGlibcBuff, tstTransitionToGlibcBuff);
+				free(tstTransitionToGlibcBuff);
+#endif
 				}
 				alloc = 0;
 			}
@@ -393,6 +404,7 @@ void runAllocationTests(mqd_t mq, char *realoc)
 #endif
 	int testnum = 1;
 	
+	//outputFile(getpid(), OPEN_FOR_WRITE);
 	dbg(PRINT_MUST, "\n**********************************\n%s: %d\n**********************************\n", __FUNCTION__, getpid());
 	if (realoc) {
 		char *r = realloc(realoc, 32);
@@ -511,7 +523,7 @@ void runAllocationTests(mqd_t mq, char *realoc)
 	z = calloc(2, 16);
 	memset(z,0,32);
 	strcpy(z, "abcdefghijklmnopqrstuvwxyz01234");
-	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z1:z, 32, z);
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 32, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
 	if (((0 < gMemInitialized)?1:(z1 == (char*)resp[0].ptr)) && (32 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr))) {
 		PRINT("\tPass\n");
@@ -532,7 +544,7 @@ void runAllocationTests(mqd_t mq, char *realoc)
 	strcpy(&z[31], "567890a");
 	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 40, z);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
-	if (((0 < gMemInitialized)?1:(z1 == (char*)resp[0].ptr)) && (40 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr))) {
+	if (((0 < gMemInitialized)?(z == (char*)resp[0].ptr):(z1 == (char*)resp[0].ptr)) && (40 == resp[0].size) && (!strcmp(z,(char*)resp[0].ptr))) {
 		PRINT("\tPass\n");
 		passed++;
 	}
@@ -540,26 +552,60 @@ void runAllocationTests(mqd_t mq, char *realoc)
 		PRINT("\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
 		failed++;
 	}
-	z = realloc(z, 0);
 #ifdef OPTIMIZE_MQ_TRANSFER
-	z =  &gInitialAlloc[gInitIndex] + listSize;
+	z1 =  &gInitialAlloc[gInitIndex] + listSize;
 #else
-	z = z1 + 40 + listSize;
+	z1 = z + 40 + listSize;
 #endif
-	z1 = realloc(NULL, 40);
-	strcpy(z1, "abcdefghijklmnopqrstuvwxyz1234567890");
-	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z1:z, 40, z1);
+	char z3[] = "abcdefghijklmnop";
+	z = realloc(z, 16);
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 16, z3);
 	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
-	if (((0 < gMemInitialized)?(z1 == (char*)resp[0].ptr):(z == (char*)resp[0].ptr)) && (40 == resp[0].size) && (!strcmp(z1,(char*)resp[0].ptr))) {
+	if (((0 < gMemInitialized)?(z == (char*)resp[0].ptr):(z1 == (char*)resp[0].ptr)) && (16 == resp[0].size) && !strncmp((char*)resp[0].ptr, z3,16)) {
 		PRINT("\tPass\n");
 		passed++;
 	}
 	else {
-		PRINT("\t%d: Fail %p,%d,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr);
+		PRINT("\t%d: Fail %p,%d,%s,%s\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr, z3);
 		failed++;
 	}
+#ifdef OPTIMIZE_MQ_TRANSFER
+	z1 =  &gInitialAlloc[gInitIndex] + listSize;
+#else
+	z1 = z + 16 + listSize;
+#endif
+	z = realloc(z, 0);
+	PRINT("%d. [%d] Show %p,%d\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 0);
+	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
+	if (((0 < gMemInitialized)?(z == (char*)resp[0].ptr):(z1 == (char*)resp[0].ptr)) && (0 == resp[0].size)) {
+		PRINT("\tPass\n");
+		passed++;
+	}
+	else {
+		PRINT("\t%d: Fail %p,%d\n", __LINE__, resp[0].ptr, resp[0].size);
+		failed++;
+	}
+	free(z);
+#ifdef OPTIMIZE_MQ_TRANSFER
+	z1 =  &gInitialAlloc[gInitIndex] + listSize;
+#else
+	z1 = z + listSize;
+#endif
+	z = realloc(NULL, 40);
+	strcpy(z, "abcdefghijklmnopqrstuvwxyz1234567890");
+	PRINT("%d. [%d] Show %p,%d,%s\n", testnum++,__LINE__, (0 < gMemInitialized)?z:z1, 40, z);
+	sendAndRecv(mq, HEAPWALK_INCREMENT, resp, 8, 0);
+	if (((0 < gMemInitialized)?(z == (char*)resp[0].ptr):(z1 == (char*)resp[0].ptr)) && (40 == resp[0].size) && 
+			(!strcmp(z,(char*)resp[0].ptr))) {
+		PRINT("\tPass\n");
+		passed++;
+	}
+	else {
+		PRINT("\t%d: Fail %p,%d,%s,next ptrs %p,%p\n", __LINE__, resp[0].ptr, resp[0].size, (char*)resp[0].ptr, resp[1].ptr,resp[2].ptr);
+		failed++;
+	}
+	free(z);
 	z = memalign(64, 40);
-	free(z1);
 #if 0 //def PREPEND_LISTDATA
 	unsigned int alignment = 64;
 	unsigned int size = 40;
@@ -624,6 +670,7 @@ void runAllocationTests(mqd_t mq, char *realoc)
 	}
 
 	dbg(PRINT_MUST, "Total test cases: %d [Pass %d Fail %d]\n", passed+failed, passed, failed);
+	//outputFile(getpid(), CLOSE_FILE);
 
 	FILE *fp = fopen("/tmp/memleakutil_selftest.txt", "a");
 	if (NULL != fp) {
@@ -642,6 +689,7 @@ void runListTests(mqd_t mq)
 	int passed=0, failed=0;
 	int testnum = 1;
 
+	//outputFile(getpid(), OPEN_FOR_WRITE);
 	dbg(PRINT_MUST, "\n**********************************\n%s: %d\n**********************************\n", __FUNCTION__, getpid());
 	x[0] = malloc(8);
 
@@ -1915,6 +1963,7 @@ void runListTests(mqd_t mq)
 		PRINT("\tFail %p\n", resp[0].ptr);
 		failed++;
 	}
+	//outputFile(getpid(), CLOSE_FILE);
 
 	dbg(PRINT_MUST, "Total test cases: %d [Pass %d Fail %d]\n", passed+failed, passed, failed);
 	FILE *fp = fopen("/tmp/memleakutil_selftest.txt", "a");

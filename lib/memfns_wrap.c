@@ -74,6 +74,16 @@ char __attribute__ ((aligned (sizeof(void*)))) gListInitialAllocP[G_INITIAL_LIST
 char __attribute__ ((aligned (4096))) gInitialAllocP[G_INITIAL_ALLOC_SIZE];
 #endif
 */
+
+#if defined(INTERCEPT_MMAP)
+
+#ifndef PREPEND_LISTDATA
+char gListInitialAlloc_buffer[G_INITIAL_LIST_ALLOC_SIZE];
+#endif
+
+char __attribute__ ((aligned (4096))) gInitialAlloc_buffer[G_INITIAL_ALLOC_SIZE];
+#endif
+
 char *gInitialAlloc;
 unsigned int gInitIndex;
 #define G_INITIAL_ALLOC_SIZE_ERROR "Increase G_INITIAL_ALLOC_SIZE\n"
@@ -241,11 +251,6 @@ __attribute__((visibility("default"))) void *mmap64(void *start, size_t len, int
 	return mmap64_fnptr(start, len, prot, flags, fd, offset);
 }
 #endif
-#ifndef PREPEND_LISTDATA
-char gListInitialAlloc_buffer[G_INITIAL_LIST_ALLOC_SIZE];
-#endif
-
-char gInitialAlloc_buffer[G_INITIAL_ALLOC_SIZE];
 
 void sndMmapIntercepts(mqd_t mqsend)
 {
@@ -912,7 +917,7 @@ void heapwalkReset()
  * @param mqsend The message queue descriptor to which memory information will be sent.
  * @param walkAll A flag indicating whether to walk all allocations or only new ones.
  */
-void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
+void heapwalk(mqd_t mqsend, bool walkAll, FILE *fpHWalk)
 {
 	msg_resp msgresp;
 	LIST *tmp;
@@ -941,7 +946,7 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 					 * then proceed with to be walked send */
 					if (hpwmemhead == hpfmemhead) {
 						msgresp.numItemOrInfo = HEAPWALK_EMPTY;
-						if (NULL == fname) {
+						if (NULL == fpHWalk) {
 							mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 						}
 					}
@@ -977,20 +982,20 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 					msgresp.heapPeakSize = heapPeakSize;
 					msgresp.heapPeakedAt = heapPeakedAt;
 #endif
-					if (NULL == fname) {
+					if (NULL == fpHWalk) {
 						mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 					}
 					else {
 						/* Reason we open everytime and write is to avoid showing an allocation
 						 * during fopen and fwrite 
 						 */
-						FILE *fp = fopen(fname, "ab");
-						if (NULL != fp) {
-							if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fp)) {
+						//FILE *fp = fopen(fname, "ab");
+						//if (NULL != fp) {
+							if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWalk)) {
 								dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
 							}
-							fclose(fp);
-						}
+						//	fclose(fp);
+						//}
 					}
 					msgresp.numItemOrInfo = HEAPWALK_EMPTY;
 				}
@@ -1008,28 +1013,28 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 #endif
 				// TODO: for now send the full size. sync receiver to accept for lesser size
 				/* Send the message with the information collected */
-				if (NULL == fname) {
+				if (NULL == fpHWalk) {
 					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 				}
 				else {
-					FILE *fp = fopen(fname, "ab");
-					if (NULL != fp) {
-						if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fp)) {
+					//FILE *fp = fopen(fname, "ab");
+					//if (NULL != fp) {
+						if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWalk)) {
 							dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
 						}
-						fclose(fp);
-					}
+					//	fclose(fp);
+					//}
 				}
 			}
 		}
 		else
 		{
 			// msgresp.numItemOrInfo = HEAPWALK_EMPTY; Initialized already
-			if (NULL == fname) {
+			if (NULL == fpHWalk) {
 				mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 			}
 		}
-		if (fname) {
+		if (fpHWalk) {
 			pthread_mutex_unlock(&lock);
 			return;
 		}
@@ -1074,17 +1079,17 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 				msgresp.heapPeakedAt = heapPeakedAt;
 #endif
 				dbg(PRINT_INFO, "%s: Sending %d unwalked items\n", __FUNCTION__, (msgresp.numItemOrInfo&(~(0x20000000))));
-				if (NULL == fname) {
+				if (NULL == fpHWalk) {
 					mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 				}
 				else {
-					FILE *fp = fopen(fname, "ab");
-					if (NULL != fp) {
-						if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fp)) {
+					//FILE *fp = fopen(fname, "ab");
+					//if (NULL != fp) {
+						if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWalk)) {
 							dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
 						}
-						fclose(fp);
-					}
+					//	fclose(fp);
+					//}
 				}
 				msgresp.numItemOrInfo = 0;
 			}
@@ -1102,17 +1107,17 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 			msgresp.heapPeakedAt = heapPeakedAt;
 #endif
 			// TODO: for now send the full size. sync receiver to accept for lesser size
-			if (NULL == fname) {
+			if (NULL == fpHWalk) {
 				mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 			}
 			else {
-				FILE *fp = fopen(fname, "ab");
-				if (NULL != fp) {
-					if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fp)) {
+				//FILE *fp = fopen(fname, "ab");
+				//if (NULL != fp) {
+					if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWalk)) {
 						dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
 					}
-					fclose(fp);
-				}
+				//	fclose(fp);
+				//}
 			}
 		}
 
@@ -1156,17 +1161,17 @@ void heapwalk(mqd_t mqsend, bool walkAll, char *fname)
 		msgresp.heapPeakedAt = heapPeakedAt;
 #endif
 		// msgresp.numItemOrInfo = HEAPWALK_EMPTY;
-		if (NULL == fname) {
+		if (NULL == fpHWalk) {
 			mq_send(mqsend, (const char *)&msgresp, sizeof(msg_resp), 0);
 		}
 		else {
-			FILE *fp = fopen(fname, "ab");
-			if (NULL != fp) {
-				if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fp)) {
+			//FILE *fp = fopen(fname, "ab");
+			//if (NULL != fp) {
+				if (!fwrite((void *)&msgresp, sizeof(msg_resp), 1, fpHWalk)) {
 					dbg(PRINT_ERROR, "%s:%d: store error [%s]\n", __FUNCTION__, __LINE__, strerror(errno));
 				}
-				fclose(fp);
-			}
+			//	fclose(fp);
+			//}
 		}
 	}
 	pthread_mutex_unlock(&lock);
@@ -1193,220 +1198,286 @@ void sndPthreadIntercepts(mqd_t mqsend)
 	}
 }
 
-int storeSmaps(char *suffix)
+unsigned long storeSmaps(char *suffix, FILE *memFP)
 {
+	unsigned smapsSize;
 	char mmapTmpArray[1024]; /* Used to read entries from /proc/pid/smaps...big enough to hold large entries */
-	FILE *fpMmap;
-	if (suffix) {
-		sprintf(mmapTmpArray, "/tmp/smaps_%d_%s.txt", getpid(), suffix);
+        mmapTmpArray[0] = 0;
+        FILE *fp = fopen("/proc/sys/kernel/randomize_va_space", "r");
+        if (fp) {
+                if(!fread(mmapTmpArray, 1, 32, fp)) mmapTmpArray[0] = '\0';
+                fclose(fp);
+        }
+	unsigned aslr = atoi(mmapTmpArray);
+        dbg(PRINT_INFO, "\n%s: ASLR %d\n", __FUNCTION__, aslr);
+
+	static unsigned skipToEntry = 0, skipToSize = 0, skipToRss = 0, skipToSwapPss = 0, skipToRollover = 0; 
+	unsigned skippedToLearn = 0;
+
+	time_t timenow = time(NULL);
+	struct tm *tmNow = localtime(&timenow);
+	char dateStr[64];
+	if (0 == strftime(dateStr, sizeof(dateStr), "YYYY_MM_DD HH_MM_SS %Y_%m_%d %H_%M_%S", tmNow)) {
+		// Shouldn't fail unless dateStr is not big enough to hold
+		sprintf(dateStr, "Date_in_epoch: %lu secs", timenow); // see if this is warned in 32 bit systems..
 	}
-	else {
-		sprintf(mmapTmpArray, "/tmp/smaps_%d.txt", getpid());
+	size_t writeSize = sprintf(mmapTmpArray, "ASLR: %u Time: %s\n", aslr, dateStr);
+	size_t writtenSize;
+
+	if (writeSize > (writtenSize = fwrite((void *)&mmapTmpArray, 1, writeSize, memFP))) {
+		dbg(PRINT_MUST, "%s:%d Error storing %s, stored %lu instead of %lu\n", 
+				__FUNCTION__, __LINE__, strerror(errno), writtenSize, writeSize);
 	}
-	fpMmap = fopen(mmapTmpArray, "w");
+	smapsSize = writtenSize;
+	sprintf(mmapTmpArray, "/proc/%u/smaps", getpid());
+	
+	FILE *smap = fopen(mmapTmpArray, "r");
+	if (smap) {
+		unsigned offset = 0;
+		unsigned lines_To_skip = skipToEntry;
+		unsigned skipped = 1; // Tracks current skips
+		unsigned expect_entry = 1, expect_size = 0, expect_rss = 0, expect_swap_pss = 0;
+		size_t writeSize;
 
-	if (NULL != fpMmap) {
-		static unsigned skipToEntry = 0, skipToSize = 0, skipToRss = 0, skipToRollover = 0; 
-		unsigned skippedToLearn = 0;
-
-		time_t timenow = time(NULL);
-		//struct tm *tmNow = localtime(&timenow); /* This allocates 15/17/20 bytes randomly creaing confusion during heapwalk. so avoid by using epoch
-		//if (0 == strftime(mmapTmpArray, sizeof(mmapTmpArray), "YYYY_MM_DD HH_MM_SS %Y_%m_%d %H_%M_%S", tmNow)) {
-			sprintf(mmapTmpArray, "Date in epoch: %lu secs", timenow); // see if this is warned in 32 bit systems..
-		//}
-		fprintf(fpMmap, "%s\n", mmapTmpArray);
-		sprintf(mmapTmpArray, "/proc/%u/smaps", getpid());
-		FILE *smap = fopen(mmapTmpArray, "r");
-		if (smap) {
-			unsigned lines_To_skip = skipToEntry;
-			unsigned skipped = 1; // Tracks current skips
-			unsigned expect_entry = 1, expect_size = 0, expect_rss = 0;
-
-			MMAP_info tmp = {0};
-#if defined(PROCESS_PAGEMAP_IN_LIB)
-			sprintf(mmapTmpArray, "/proc/%d/pagemap", getpid());
-			FILE *pagemap = fopen(mmapTmpArray, "rb");
-			sprintf(mmapTmpArray, "/tmp/hpp_lib_%d.txt", getpid());
-			FILE *pagemapFp = fopen(mmapTmpArray, "w");
-			if (NULL == pagemapFp) {
-				PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
-				fclose(smap);
-				fclose(fpMmap);
-				return 1;
-			}
-			unsigned long startAddr = 0, endAddr = 0;
-#endif
-			while (fgets(mmapTmpArray, 1024, smap)) {
-				if (skipToRollover) { // Learnt the format
-					if (++skipped > lines_To_skip) {
-						if (expect_entry) {
-							/* aaaad3ff0000-aaaad4139000 r-xp 00000000 b3:02 2368                       /usr/bin/bash */
-							if (3 <= sscanf(mmapTmpArray, "%lx-%lx %s %*x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, tmp.entryName)) {
-								dbg(PRINT_NOISE,"Read Entry %s %lx-%lx %s", mmapTmpArray, tmp.startAddress, tmp.endAddress, tmp.entryName);
-								lines_To_skip = skipToSize;
-								skipped = 1;
-								expect_size = 1;
-								expect_entry = 0;
+		MMAP_info tmp = {0};
+		while (fgets(mmapTmpArray, 1024, smap)) {
+			if (skipToRollover) { // Learnt the format
+				if (++skipped > lines_To_skip) {
+					if (expect_entry) {
+						/* aaaad3ff0000-aaaad4139000 r-xp 00000000 b3:02 2368                       /usr/bin/bash */
+						// Checking for 3 entries below, since an entry can be unnamed
+						if (4 <= sscanf(mmapTmpArray, "%lx-%lx %s %x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, &offset, tmp.entryName)) {
+							if (!strncmp(tmp.perm, "r-xp", 4)) {
+								tmp.startAddress -= offset;
 							}
-							else {
-								dbg(PRINT_ERROR,"Error Reading Entry from %s", mmapTmpArray);
-							}
-						} 
-						else if (expect_size) {
-							if (sscanf(mmapTmpArray, "Size: %u kB", &tmp.size)) {
-								lines_To_skip = skipToRss;
-								skipped = 1;
-								expect_rss = 1;
-								expect_size = 0;
-							}
-							else {
-								dbg(PRINT_ERROR,"Error Reading Size from %s", mmapTmpArray);
-							}
-						} 
-						else if (expect_rss) {
-							if (sscanf(mmapTmpArray, "Rss: %u kB", &tmp.rss)) {
-								lines_To_skip = skipToRollover;
-								skipped = 1;
+							dbg(PRINT_NOISE,"Read Entry %s %lx-%lx %s", mmapTmpArray, tmp.startAddress, tmp.endAddress, tmp.entryName);
+							lines_To_skip = skipToSize;
+							expect_size = 1;
+							expect_entry = 0;
+							skipped = 1;
+						}
+						else {
+							dbg(PRINT_ERROR,"Error Reading Entry from %s", mmapTmpArray);
+						}
+					} 
+					else if (expect_size) {
+						if (sscanf(mmapTmpArray, "Size: %u kB", &tmp.size)) {
+							dbg(PRINT_NOISE,"Read Entry %s %u", mmapTmpArray, tmp.size);
+							lines_To_skip = skipToRss;
+							skipped = 1;
+							expect_rss = 1;
+							expect_size = 0;
+						}
+						else {
+							dbg(PRINT_ERROR,"Error Reading Size from %s", mmapTmpArray);
+						}
+					} 
+					else if (expect_rss) {
+						if (sscanf(mmapTmpArray, "Rss: %u kB", &tmp.rss)) {
+							dbg(PRINT_NOISE,"Read Entry %s %u", mmapTmpArray, tmp.rss);
+							if (!tmp.rss) {
+								lines_To_skip = skipToSwapPss + skipToRollover;
 								expect_entry = 1;
-								expect_rss = 0;
-								fprintf(fpMmap, "%lx-%lx %u %u %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
-#if defined(PROCESS_PAGEMAP_IN_LIB)
-								if ('\0' == tmp.entryName[0] || strstr(tmp.entryName, "stack") || strstr(tmp.entryName, "heap")) {
-									startAddr = tmp.startAddress;endAddr = tmp.endAddress;
+
+								writeSize = sprintf(mmapTmpArray, "%lx-%lx %u %u 0 %s %s\n", 
+										tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
+
+								if (writeSize > (writtenSize = fwrite((void *)&mmapTmpArray, 1, writeSize, memFP))) {
+									dbg(PRINT_MUST, "%s:%d Error storing %s, stored %lu instead of %lu\n", 
+											__FUNCTION__, __LINE__, strerror(errno), writtenSize, writeSize);
 								}
-#endif
+								smapsSize += writtenSize;
 								memset(&tmp, 0, sizeof(MMAP_info));
 							}
 							else {
-								dbg(PRINT_ERROR,"Error Reading Rss from %s", mmapTmpArray);
+								lines_To_skip = skipToSwapPss;
+								expect_swap_pss = 1;
 							}
-						} 
-					}
-					else {
-						dbg(PRINT_NOISE, "Skipping, skipped vs lines_To_skip %u:%u, line %s", skipped, lines_To_skip, mmapTmpArray);
-					}
-				}
-				else { // Learn here
-					if (!skipToEntry) {
-						if (3 <= sscanf(mmapTmpArray, "%lx-%lx %s %*x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, tmp.entryName)) {
-							tmp.size = tmp.endAddress - tmp.startAddress;
-							skipToEntry = skippedToLearn + 1;
-							skippedToLearn = 0;
+							skipped = 1;
+							expect_rss = 0;
 						}
 						else {
-							skippedToLearn++;
+							dbg(PRINT_ERROR,"Error Reading Rss from %s", mmapTmpArray);
 						}
 					}
-					else if (!skipToSize) {
-						if (sscanf(mmapTmpArray, "Size: %u kB", &tmp.size)) {
-							skipToSize = skippedToLearn + 1;
-							skippedToLearn = 0;
-						}
-						else {
-							skippedToLearn++;
-						}
-					}
-					else if (!skipToRss) {
-						if (sscanf(mmapTmpArray, "Rss: %u kB", &tmp.rss)) {
-							skipToRss = skippedToLearn + 1;
-							skippedToLearn = 0;
-							fprintf(fpMmap, "%lx-%lx %u %u %s %s\n", tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.perm, tmp.entryName);
-#if defined(PROCESS_PAGEMAP_IN_LIB)
-							if ('\0' == tmp.entryName[0] || strstr(tmp.entryName, "stack") || strstr(tmp.entryName, "heap")) {
-								startAddr = tmp.startAddress;endAddr = tmp.endAddress;
+					else if (expect_swap_pss) {
+						if (sscanf(mmapTmpArray, "SwapPss: %u kB", &tmp.swapPss)) {
+							lines_To_skip = skipToRollover;
+							skipped = 1;
+							expect_entry = 1;
+							expect_swap_pss = 0;
+							writeSize = sprintf(mmapTmpArray, "%lx-%lx %u %u %u %s %s\n", 
+									tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.swapPss, tmp.perm, tmp.entryName);
+							if (writeSize > (writtenSize = fwrite((void *)&mmapTmpArray, 1, writeSize, memFP))) {
+								dbg(PRINT_MUST, "%s:%d Error storing %s, stored %lu instead of %lu\n", 
+										__FUNCTION__, __LINE__, strerror(errno), writtenSize, writeSize);
 							}
-#endif
+							smapsSize += writtenSize;
 							memset(&tmp, 0, sizeof(MMAP_info));
 						}
 						else {
-							skippedToLearn++;
+							dbg(PRINT_ERROR,"Error Reading Swap Pss from %s", mmapTmpArray);
 						}
 					}
-					else if (!skipToRollover) {
-                                                if (3 <= sscanf(mmapTmpArray, "%lx-%lx %s %*x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, tmp.entryName)) {
-                                                        tmp.size = tmp.endAddress - tmp.startAddress;
-                                                        skipToRollover = skippedToLearn + 1;
-							skippedToLearn = 0;
-							expect_size = 1;
-							expect_entry = 0;
-                                                }
-                                                else {
-                                                        skippedToLearn++;
-                                                }
-                                        }
 					else {
 						PRINT("%s:%d: Shouldn't get here..read line %s\n", __FUNCTION__, __LINE__, mmapTmpArray);
 					}
 				}
-#if defined(PROCESS_PAGEMAP_IN_LIB)
-				if (startAddr) {
-					unsigned long long pageinfo;
-					while (startAddr < endAddr) {
-						fseek(pagemap, (startAddr / sysconf(_SC_PAGE_SIZE)) * 8, SEEK_SET);
-						fread(&pageinfo, 8, 1, pagemap);
-						sprintf(mmapTmpArray, "0x%lx 0x%llx\n", startAddr, pageinfo);
-						fwrite(mmapTmpArray, 1, strlen(mmapTmpArray), pagemapFp);
-						startAddr += sysconf(_SC_PAGE_SIZE);
-					}
-					startAddr = 0;
+				else {
+					dbg(PRINT_NOISE, "Skipping, skipped vs lines_To_skip %u:%u, line %s", skipped, lines_To_skip, mmapTmpArray);
 				}
-#endif
 			}
-			fclose(smap);
-#if defined(PROCESS_PAGEMAP_IN_LIB)
-			fclose(pagemapFp);
-			fclose(pagemap);
-#endif
+			else { // Learn here
+				if (!skipToEntry) {
+					if (4 <= sscanf(mmapTmpArray, "%lx-%lx %s %x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, &offset, tmp.entryName)) {
+						if (!strncmp(tmp.perm, "r-xp", 4)) {
+							tmp.startAddress -= offset;
+						}
+						skipToEntry = skippedToLearn + 1;
+						skippedToLearn = 0;
+						dbg(PRINT_NOISE,"Read Entry %lx-%lx %s %s after skipping %u lines - %s", 
+								tmp.startAddress, tmp.endAddress, tmp.entryName, tmp.perm, skipToEntry, mmapTmpArray);
+					}
+					else {
+						skippedToLearn++;
+						dbg(PRINT_INFO, "skippedForEntry: %u, %s\n", skippedToLearn, mmapTmpArray);
+					}
+				}
+				else if (!skipToSize) {
+					if (sscanf(mmapTmpArray, "Size: %u kB", &tmp.size)) {
+						skipToSize = skippedToLearn + 1;
+						skippedToLearn = 0;
+						dbg(PRINT_NOISE,"Read Size %u after skipping %u lines - %s", tmp.size, skipToSize, mmapTmpArray);
+					}
+					else {
+						skippedToLearn++;
+						dbg(PRINT_INFO, "skippedForSize: %u, %s\n", skippedToLearn, mmapTmpArray);
+					}
+				}
+				else if (!skipToRss) {
+					if (sscanf(mmapTmpArray, "Rss: %u kB", &tmp.rss)) {
+						skipToRss = skippedToLearn + 1;
+						skippedToLearn = 0;
+						dbg(PRINT_NOISE,"Read Rss %u after skipping %u - %s", tmp.rss, skipToRss, mmapTmpArray);
+					}
+					else {
+						skippedToLearn++;
+						dbg(PRINT_INFO, "skippedForRss: %u, %s\n", skippedToLearn, mmapTmpArray);
+					}
+				}
+				else if (!skipToSwapPss) {
+					if (sscanf(mmapTmpArray, "SwapPss: %u kB", &tmp.swapPss)) {
+						skipToSwapPss = skippedToLearn + 1;
+						skippedToLearn = 0;
+						dbg(PRINT_NOISE,"Read Swap Pss %u after skipping %u - %s", tmp.swapPss, skipToSwapPss, mmapTmpArray);
+						writeSize = sprintf(mmapTmpArray, "%lx-%lx %u %u %u %s %s\n", 
+								tmp.startAddress, tmp.endAddress, tmp.size, tmp.rss, tmp.swapPss, tmp.perm, tmp.entryName);
+						if (writeSize > (writtenSize = fwrite((void *)&mmapTmpArray, 1, writeSize, memFP))) {
+							dbg(PRINT_MUST, "%s:%d Error storing %s, stored %lu instead of %lu\n", 
+									__FUNCTION__, __LINE__, strerror(errno), writtenSize, writeSize);
+						}
+						smapsSize += writtenSize;
+						memset(&tmp, 0, sizeof(MMAP_info));
+					}
+					else {
+						skippedToLearn++;
+						dbg(PRINT_INFO, "skippedForSwapPss: %u, %s\n", skippedToLearn, mmapTmpArray);
+					}
+				}
+				else if (!skipToRollover) {
+                                        if (4 <= sscanf(mmapTmpArray, "%lx-%lx %s %x %*s %*u %s", &tmp.startAddress, &tmp.endAddress, tmp.perm, &offset, tmp.entryName)) {
+						if (!strncmp(tmp.perm, "r-xp", 4)) {
+							tmp.startAddress -= offset;
+						}
+                                                skipToRollover = skippedToLearn + 1;
+						skippedToLearn = 0;
+                                                dbg(PRINT_NOISE, "Read Rollover %lx-%lx %s %s after skipping %u - %s", 
+								tmp.startAddress, tmp.endAddress, tmp.entryName, tmp.perm, skipToRollover, mmapTmpArray);
+						expect_size = 1;
+						expect_entry = 0;
+                                        }
+                                        else {
+                                                skippedToLearn++;
+						dbg(PRINT_INFO, "skippedForRollover: %u, %s\n", skippedToLearn, mmapTmpArray);
+                                        }
+                                }
+				else {
+					PRINT("%s:%d: Shouldn't get here..read line %s\n", __FUNCTION__, __LINE__, mmapTmpArray);
+				}
+			}
 		}
-		else {
-			PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
-			return 1;
-		}
-		fclose(fpMmap);
+		fclose(smap);
+		dbg(PRINT_INFO, "%s: smapsSize %u, pagemapIndex %lx\n", __FUNCTION__, smapsSize, ftell(memFP));
 	}
 	else {
 		PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
-		return 1;
+		return 0;
 	}
-	return 0;
+	return smapsSize;
+}
+
+static unsigned rng_crc32(unsigned crcin, const unsigned char *buf, size_t length)
+{
+	unsigned crc32 = (crcin)? crcin : 0xFFFFFFFF;
+
+	for (int i = 0; i < length; i++) {
+		crc32 ^= buf[i];
+		for (int j = 0; j < 8; j++) {
+			crc32 = (crc32 & 1)? ((crc32 >> 1) ^ 0xEDB88320) : (crc32 >> 1);
+		}
+	}
+	return crc32;
 }
 /* Stores either full or incremental walk into /tmp/hp(f)_pid_[suffix].data */
 int saveHeapwalk(char *suffix)
 {
+	HEADER hdr = {0};
 	char *heapwalkFile;
 
 	if (NULL == suffix || '\0' == suffix[0]) {
 		heapwalkFile = alloca(32);
-		sprintf(heapwalkFile, "/tmp/hpf_%d.dat", getpid());
+		sprintf(heapwalkFile, "/tmp/memleakutil_%d.dat", getpid());
 	}
 	else {
 		heapwalkFile = alloca(strlen(suffix) + 32);
-		sprintf(heapwalkFile, "/tmp/hpf_%d_%s.dat", getpid(), suffix);
+		sprintf(heapwalkFile, "/tmp/memleakutil_%d_%s.dat", getpid(), suffix);
 	}
-	FILE *fpHWalk = fopen(heapwalkFile, "wb");
-	if (NULL == fpHWalk)
-	{
-		dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
-		return 1;
-	}
-	fclose(fpHWalk);
-	heapwalk(-1, 1, heapwalkFile);
-
-	if (NULL == suffix || '\0' == suffix[0]) {
-		sprintf(heapwalkFile, "/tmp/hp_%d.dat", getpid());
+	FILE *fpHWalk = fopen(heapwalkFile, "wb+");
+	if (fpHWalk){
+		hdr.version = atoi(MEMWRAP_MAJOR_VERSION) * 10000 + atoi(MEMWRAP_MINOR_VERSION) * 100 + MEMWRAP_MSG_RESP_VERSION;
+		fwrite(&hdr, sizeof(HEADER), 1, fpHWalk);
+		hdr.walkedIndex = ftell(fpHWalk);
+		heapwalk(-1, 1, fpHWalk);
+		hdr.walkIndex = ftell(fpHWalk);
+		hdr.walkedSize = hdr.walkIndex - hdr.walkedIndex;
+		
+		heapwalk(-1, 0, fpHWalk);
+		hdr.smapsIndex = ftell(fpHWalk);
+		hdr.walkSize = hdr.smapsIndex - hdr.walkIndex;
+		hdr.smapsSize = storeSmaps(suffix, fpHWalk);
+		char buf[4096];
+		int rdSize;
+		if (fseek(fpHWalk, hdr.walkedIndex, SEEK_SET)) {
+			dbg(PRINT_ERROR, "%s: fseek error %s\n", __FUNCTION__, strerror(errno));
+		}
+		clearerr(fpHWalk);
+		while (!feof(fpHWalk) && (0 < (rdSize = fread(buf, 1, sizeof(buf), fpHWalk)))) {
+			hdr.crc32 = rng_crc32(hdr.crc32, (const unsigned char *)buf, rdSize);
+		}
+		hdr.crc32 = rng_crc32(hdr.crc32, (const unsigned char *)&hdr, sizeof(hdr) - sizeof(hdr.crc32));
+                                
+		fseek(fpHWalk, 0, SEEK_SET);
+		fwrite(&hdr, sizeof(HEADER), 1, fpHWalk);
+		fclose(fpHWalk);
+		dbg(PRINT_INFO, "%s: \nHeader %u:%u\n      %u:%u:%u:%u:%u:%u:%u:%u:%u:%u:%u:%u\n",
+				__FUNCTION__, hdr.version, hdr.crc32, hdr.walkedIndex, hdr.walkedSize, hdr.walkIndex, hdr.walkSize,
+				hdr.stackInterceptIndex, hdr.stackInterceptSize, hdr.mmapInterceptIndex, hdr.mmapInterceptSize,
+				hdr.smapsIndex, hdr.smapsSize, hdr.pagemapIndex, hdr.pagemapSize);
 	}
 	else {
-		sprintf(heapwalkFile, "/tmp/hp_%d_%s.dat", getpid(), suffix);
-	}
-	fpHWalk = fopen(heapwalkFile, "wb");
-	if (NULL == fpHWalk)
-	{
 		dbg(PRINT_MUST, "%s open error, %s\n", heapwalkFile, strerror(errno));
 		return 1;
 	}
-	fclose(fpHWalk);
-	heapwalk(-1, 0, heapwalkFile);
-	storeSmaps(suffix);
 	return 0;
 }
 void saveHeapWalkAtExit()
@@ -2257,23 +2328,24 @@ __attribute__((visibility("default"))) void *realloc(void *curPtr, size_t newSiz
 	{
 		item = getItem(curPtr);
 	       	if (NULL != deleteItemFromList(curPtr)) { // This is more likely
-			if (newSize) {
+			//if (newSize) {
 				curPtr = item;
 				oldsize = 0;
-			}
-			else {
-				return libc_realloc_fnptr((void *)item, newSize);
-			}
+			//}
+			//else {
+			//	return libc_realloc_fnptr((void *)item, newSize);
+			//}
 		}
 		else {
-			if (newSize) {
+			//if (newSize) {
 				// The previous allocation came from static buffer. So note down the size to copy back the contents
-				oldsize = item->size + sizeof(LIST);
+
+				oldsize = (item->size <= newSize)? item->size + sizeof(LIST) : newSize + sizeof(LIST);
 				curPtr = NULL;
-			}
-			else {
-				return NULL;
-			}
+			//}
+			//else {
+			//	return NULL;
+			//}
 		}
 	}
 	else {

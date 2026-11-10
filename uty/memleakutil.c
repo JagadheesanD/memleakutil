@@ -37,22 +37,6 @@ int interactive;
 #define OFFLINE_ANALYZE 2
 int offlineAnalysis;
 
-typedef struct __attribute__((packed)) header {
-	int version;
-	unsigned walkedIndex; // 32 bit seek should be good enough..it can fail for files beyond 4GB
-	unsigned walkedSize;
-	unsigned walkIndex;
-	unsigned walkSize;
-	unsigned stackInterceptIndex;
-	unsigned stackInterceptSize;
-	unsigned mmapInterceptIndex;
-	unsigned mmapInterceptSize;
-	unsigned smapsIndex;
-	unsigned smapsSize;
-	unsigned pagemapIndex;
-	unsigned pagemapSize;
-	unsigned crc32;
-}HEADER;
 HEADER hdr;
 FILE *memFP;
 
@@ -1607,7 +1591,6 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 						if (!msgSeq) {
 
 							if (!isSelfTest && (NULL == mmapIn)) {
-
 								dbg(PRINT_WALK, "\n%s\n", (HEAPWALK_FULL == cmd) ? "Already walked:" : "New Allocations:");
 								//"%5u %18p %9lu %9u(%3s) %18p %8u %s%s\n"
 								dbg(PRINT_WALK, "  SNo  Pointer                  Size           Usage           RA         ThreadID  AllocationTime\n");
@@ -1690,7 +1673,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 										}
 										pagetmp = pagetmp->next;
 									}
-									if (NULL == pagetmp) {
+									if (pagemapHead && (NULL == pagetmp)) {
 										dbg(PRINT_ERROR, "******** ptr %p not found in pagemap\n", ptr);
 									}
 
@@ -1789,6 +1772,9 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 				if (tid && threadAllocationOnly)
 				{
 					PRINT("HeapSize for walked thread(%d): %llu Bytes\n\n", tid, threadAllocationOnly);
+				}
+				if (NULL == pagemapHead) {
+					PRINT("\nNOTE: Physical size couldn't be determined, as pagemap is unavailable\n");
 				}
 				printAndFreeThreadStat();
 
@@ -1895,6 +1881,10 @@ int outputFile(int pid, OUTPUT_FILE opr)
 				}
 				else {
 					fread(&hdr, 1, sizeof(HEADER), memFP);
+					dbg(PRINT_INFO, "%s: \nHeader %u:%u\n      %u:%u:%u:%u:%u:%u:%u:%u:%u:%u:%u:%u\n",
+						__FUNCTION__, hdr.version, hdr.crc32, hdr.walkedIndex, hdr.walkedSize, hdr.walkIndex, hdr.walkSize,
+						hdr.stackInterceptIndex, hdr.stackInterceptSize, hdr.mmapInterceptIndex, hdr.mmapInterceptSize,
+						hdr.smapsIndex, hdr.smapsSize, hdr.pagemapIndex, hdr.pagemapSize);
 
 					if (OFFLINE_ANALYZE == offlineAnalysis) {
 						if (verCheck != hdr.version) {
