@@ -218,7 +218,7 @@ typedef enum {
 	PAGE_NOT_PRESENT = 0, // Bit 63, 62 not set. Note: If PFN may be 0 if process doesn't have CAP_SYS_ADMIN capability, but fine, we donot need.
 	PAGE_PRESENT = 1, // Bit 63 set
 	PAGE_SWAPPED = 2, // Bit 62 set
-	PAGE_ACCOUNTED = 3, // when above 2 bits are set, while identifying rss for allocations and accounting total heap rss size, this indicates this page was already taken into account
+	PAGE_ACCOUNTED = 4, // when above 2 bits are set, while identifying rss for allocations and accounting total heap rss size, this indicates this page was already taken into account
 	PAGE_FILEPAGE_SHAREDANON, // Not used
 	PAGE_DIRTY, // Not used
 }PAGEMAPSTAT;

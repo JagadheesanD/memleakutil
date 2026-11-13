@@ -226,6 +226,12 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 	int msgsize = sizeof(msg_resp);
 	
 	size_t writtenSize = 0;
+	if (HEAPWALK_INCREMENT == cmd) {
+		hdr.walkIndex = ftell(memFP);
+	}
+	else {
+		hdr.walkedIndex = ftell(memFP);
+	}
 	while (0 != msgsize)
 	{
 
@@ -265,11 +271,7 @@ int storeHeapwalk(mqd_t mqrecv, int cmd, int pid, bool isSelfTest)
 			}
 			else {
 				hdr.walkSize = writtenSize;
-				if (!hdr.walkedSize) {
-					hdr.walkIndex = hdr.walkedIndex;
-				}
-				hdr.stackInterceptIndex = ftell(memFP);
-				dbg(PRINT_INFO, "%s: walkSize %lx, hdr.stackInterceptIndex %x\n", __FUNCTION__, writtenSize, hdr.stackInterceptIndex);
+				dbg(PRINT_INFO, "%s: walkSize %u, hdr.walkIndex %u\n", __FUNCTION__, hdr.walkSize, hdr.walkIndex);
 				if (!isSelfTest) {
 					dbg(PRINT_WALK, "Done heapwalk\n");
 				}
@@ -317,6 +319,10 @@ void getMmapIntercepts(mqd_t mqrecv, unsigned pid)
 					tmp.end_addr = tmp.start_addr + msgresp.xfer[index].size;
 					tmp.ra = msgresp.xfer[index].start_routine;
 					tmp.time = msgresp.xfer[index].seconds;
+					if (!hdr.mmapInterceptIndex) {
+						hdr.mmapInterceptIndex = ftell(memFP);
+						dbg(PRINT_INFO, "%s: mmapInterceptIndex %u\n", __FUNCTION__, hdr.mmapInterceptIndex);
+					}
 					if (sizeof(tmp) > (msgsize = fwrite((void *)&tmp, 1, sizeof(tmp), memFP))) {
 						dbg(PRINT_MUST, "%s:%d Error storing %s, stored %d instead of %lu\n", 
 								__FUNCTION__, __LINE__, strerror(errno), msgsize, sizeof(tmp));
@@ -330,8 +336,7 @@ void getMmapIntercepts(mqd_t mqrecv, unsigned pid)
 			break;
 		}
 	}
-	hdr.smapsIndex = ftell(memFP);
-	dbg(PRINT_INFO, "%s: mmapInterceptSize %x, hdr.smapsIndex %x\n", __FUNCTION__, hdr.mmapInterceptSize, hdr.smapsIndex);
+	dbg(PRINT_INFO, "%s: mmapInterceptSize %u\n", __FUNCTION__, hdr.mmapInterceptSize);
 	return;
 }
 #endif
@@ -361,6 +366,10 @@ int getStackIntercepts(mqd_t mqrecv, unsigned pid)
 			unsigned int info = msgresp.numItemOrInfo & 0x30000000;
 			if (info)
 			{
+				if (!hdr.stackInterceptIndex) {
+					hdr.stackInterceptIndex = ftell(memFP);
+					dbg(PRINT_INFO, "%s: hdr.stackInterceptIndex %x\n", __FUNCTION__, hdr.stackInterceptIndex);
+				}
 				if (sizeof(msg_resp) > (msgsize = fwrite((void *)&msgresp, 1, sizeof(msgresp), memFP))) {
 					dbg(PRINT_MUST, "%s:%d Error storing %s, stored %d instead of %lu\n", 
 							__FUNCTION__, __LINE__, strerror(errno), msgsize, sizeof(msg_resp));
@@ -374,8 +383,7 @@ int getStackIntercepts(mqd_t mqrecv, unsigned pid)
 			break;
 		}
 	}
-	hdr.mmapInterceptIndex = ftell(memFP);
-	dbg(PRINT_INFO, "%s: stackInterceptSize %x, hdr.mmapInterceptIndex %x\n", __FUNCTION__, hdr.stackInterceptSize, hdr.mmapInterceptIndex);
+	dbg(PRINT_INFO, "%s: stackInterceptSize %u\n", __FUNCTION__, hdr.stackInterceptSize);
 	return 0;
 }
 
@@ -399,6 +407,10 @@ void mappthreadStack(unsigned pid)
 				{
 					msgIndex = 0;
 					int msgCount = msgresp.numItemOrInfo & 0xFFFFFFF;
+					if (MAX_MSG_XFER < msgCount) {
+						dbg(PRINT_ERROR, "%s: msgCount in this set is invalid %d..continuing\n", __FUNCTION__, msgCount);
+						continue;
+					}
 					totalMsgs += msgCount;
 					dbg(PRINT_INFO, "Total pthread intercept stack count %u\n", totalMsgs);
 					while (msgIndex < msgCount) {
@@ -464,7 +476,7 @@ void mappthreadStack(unsigned pid)
 										if (pagetmp->pagestat) {
 											dbg(PRINT_INFO, "Found pagemap for stackaddr %p, pageaddress %p, size %u, sizeinpage %u\n",
 													ptr, pagetmp->pageaddress, size, sizeinpage);
-											if (PAGE_ACCOUNTED == pagetmp->pagestat) {
+											if (PAGE_ACCOUNTED & pagetmp->pagestat) {
 												dbg(PRINT_ERROR, "Page accounted !!, shouldn't happen in a stack space..stackaddr %p, pageaddress %p\n",
 														ptr, pagetmp->pageaddress);
 											}
@@ -475,7 +487,7 @@ void mappthreadStack(unsigned pid)
 												else if (PAGE_SWAPPED & pagetmp->pagestat) {
 													swapvalue += size;
 												}
-												pagetmp->pagestat = PAGE_ACCOUNTED;
+												pagetmp->pagestat |= PAGE_ACCOUNTED;
 												break;
 											}else {
 												ptr += sizeinpage;
@@ -486,7 +498,7 @@ void mappthreadStack(unsigned pid)
 												else if (PAGE_SWAPPED & pagetmp->pagestat) {
 													swapvalue += sizeinpage;
 												}
-												pagetmp->pagestat = PAGE_ACCOUNTED;
+												pagetmp->pagestat |= PAGE_ACCOUNTED;
 											}
 										}
 										else {
@@ -604,6 +616,12 @@ void storeAnonHeapStackPagemap(int pid)
 					if ((unsigned)(pageinfo>>60) || (NULL == pagemapHead)) {
 						size_t writeSize = sprintf(buf, "0x%lx %u\n", addr, (unsigned)(pageinfo>>60));
 						size_t writtenSize;
+
+						if (!hdr.pagemapIndex) {
+							hdr.pagemapIndex = ftell(memFP);
+							dbg(PRINT_INFO, "%s: hdr.pagemapIndex %u\n", __FUNCTION__, hdr.pagemapIndex);
+						}
+						// JAGA, optimize by grouping unchanged consecutive pages by writing in the format startPagemap-endPagemap <value>
 						if (writeSize > (writtenSize = fwrite((void *)&buf, 1, writeSize, memFP))) {
 							dbg(PRINT_MUST, "%s:%d Error storing %s, written %lu instead of %lu\n", 
 									__FUNCTION__, __LINE__, strerror(errno), writeSize, writtenSize);
@@ -618,6 +636,7 @@ void storeAnonHeapStackPagemap(int pid)
 			}
 			mmapAnonTmp = mmapAnonTmp->next;
 		}
+		dbg(PRINT_INFO, "%s: hdr.pagemapSize %u\n", __FUNCTION__, hdr.pagemapSize);
 		fclose(src);
 	}
 	else {
@@ -893,13 +912,16 @@ int readAndStoreSmaps(unsigned pid, bool createAnon)
 	time_t timenow = time(NULL);
 	struct tm *tmNow = localtime(&timenow);
 	char dateStr[64];
-	if (0 == strftime(dateStr, sizeof(dateStr), "YYYY_MM_DD HH_MM_SS %Y_%m_%d %H_%M_%S", tmNow)) {
+	if (NULL == tmNow || 0 == strftime(dateStr, sizeof(dateStr), "YYYY_MM_DD HH_MM_SS %Y_%m_%d %H_%M_%S", tmNow)) {
 		// Shouldn't fail unless dateStr is not big enough to hold
 		sprintf(dateStr, "Date_in_epoch: %lu secs", timenow); // see if this is warned in 32 bit systems..
 	}
 	isASLREnabled = getASLRStatus();
 	size_t writeSize = sprintf(mmapTmpArray, "ASLR: %u Time: %s\n", isASLREnabled, dateStr);
 	size_t writtenSize;
+
+	hdr.smapsIndex = ftell(memFP);
+	dbg(PRINT_INFO, "%s: hdr.smapsIndex %x\n", __FUNCTION__, hdr.smapsIndex);
 
 	if (writeSize > (writtenSize = fwrite((void *)&mmapTmpArray, 1, writeSize, memFP))) {
 		dbg(PRINT_MUST, "%s:%d Error storing %s, stored %lu instead of %lu\n", 
@@ -1124,8 +1146,6 @@ int readAndStoreSmaps(unsigned pid, bool createAnon)
 			}
 		}
 		fclose(smap);
-		hdr.pagemapIndex = ftell(memFP);
-		dbg(PRINT_INFO, "%s: smapsSize %x, hdr.pagemapIndex %x\n", __FUNCTION__, hdr.smapsSize, hdr.pagemapIndex);
 	}
 	else {
 		PRINT("%s: Open failed, errno %d [%s]\n", mmapTmpArray, errno, strerror(errno));
@@ -1328,7 +1348,7 @@ void displayGrouped()
 			/* Not worrying about thread safe, since I'm the sole user */
 			struct tm *tmNow = localtime(&(listPtr->seconds[i++]));
 			char timef[32]; // = {'\0'};
-			if (0 != strftime(timef, sizeof(timef), "%Y_%m_%d_%H_%M_%S", tmNow)) {
+			if (NULL == tmNow || 0 != strftime(timef, sizeof(timef), "%Y_%m_%d_%H_%M_%S", tmNow)) {
 			/* may not fail..but still */
 				timef[19] = '\0';
 			}
@@ -1597,6 +1617,10 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 							}
 						}
 						int msgCount = msgresp.numItemOrInfo & 0xFFFFFFF;
+						if (MAX_MSG_XFER < msgCount) {
+							dbg(PRINT_ERROR, "%s: msgCount in this set is invalid %d..continuing\n", __FUNCTION__, msgCount);
+							continue;
+						}
 						totalMsgs += msgCount;
 						while (msgIndex < msgCount)
 						{
@@ -1637,9 +1661,9 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 											dbg(PRINT_INFO, "Found pagemap for %p (%p), pageaddress %p, size %u, sizeinpage %u\n",
 													ptr, ptrPagemap, pagetmp->pageaddress, size, sizeinpage);
 											if (pagetmp->pagestat) {
-												if (PAGE_ACCOUNTED != pagetmp->pagestat) {
+												if (! (PAGE_ACCOUNTED & pagetmp->pagestat)) {
 													(PAGE_PRESENT & pagetmp->pagestat)? totalheapedrsspages++ : totalheapedswappages++;
-													pagetmp->pagestat = PAGE_ACCOUNTED;
+													pagetmp->pagestat |= PAGE_ACCOUNTED;
 												}
 												else {
 													dbg(PRINT_NOISE, "Page %p accounted already\n", pagetmp->pageaddress);
@@ -1683,7 +1707,7 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 										/* Not worrying about thread safe, since I'm the sole user */
 										struct tm *tmNow = localtime(&msgresp.xfer[msgIndex].seconds);
 										char timef[32] = {'\0'};
-										if (0 == strftime(timef, sizeof(timef), "%Y_%m_%d_%H_%M_%S", tmNow)) {
+										if (NULL == tmNow || 0 == strftime(timef, sizeof(timef), "%Y_%m_%d_%H_%M_%S", tmNow)) {
 											/* may not fail..but still */
 											sprintf(timef, "%lu", msgresp.xfer[msgIndex].seconds);
 										}
@@ -1691,8 +1715,9 @@ void processHeapwalk(int cmd, int pid, int tid, bool isSelfTest, LIST *resp, int
 #ifdef PREPEND_LISTDATA
 										PRINT("%5u  %018lx  %9lu  %9u(%3s)  %18p  %8u  %s%s\n", 
 												++msgSeq, (unsigned long)msgresp.xfer[msgIndex].ptr, msgresp.xfer[msgIndex].size, 
-												rssvalue+swapvalue, (rssvalue)?"Rss":(swapvalue)?"Swp":"Nil", msgresp.xfer[msgIndex].ra,
-											  	msgresp.xfer[msgIndex].tid, timef,
+												/* MAYBE A BIG ALLOCATION MIGHT FALL IN BOTH. DO WE NEED TO PRINT SEPARATELY?? */
+												rssvalue+swapvalue, (rssvalue)?"Rss":(swapvalue)?"Swp":"Nil", 
+												msgresp.xfer[msgIndex].ra, msgresp.xfer[msgIndex].tid, timef,
 											  	(0 == (msgresp.xfer[msgIndex].flags & 0xFF02)) ? 
 											  	"" : (msgresp.xfer[msgIndex].flags & FLAGS_BIT1_REALLOC) ? (" -Realloc") : (" -Memalign"));
 #else
@@ -1877,12 +1902,13 @@ int outputFile(int pid, OUTPUT_FILE opr)
 					memset(&hdr, 0, sizeof(HEADER));
 					hdr.version = verCheck;
 					fwrite(&hdr, sizeof(HEADER), 1, memFP);
-					hdr.walkedIndex = ftell(memFP);
+					hdr.smapsIndex = ftell(memFP);
 				}
 				else {
 					fread(&hdr, 1, sizeof(HEADER), memFP);
-					dbg(PRINT_INFO, "%s: \nHeader %u:%u\n      %u:%u:%u:%u:%u:%u:%u:%u:%u:%u:%u:%u\n",
-						__FUNCTION__, hdr.version, hdr.crc32, hdr.walkedIndex, hdr.walkedSize, hdr.walkIndex, hdr.walkSize,
+					dbg(PRINT_INFO, "%s: \nHeader %u:%u\n      Section:Index:Size\n      Walked: %u:%u\n      Walk:  %u:%u",
+						__FUNCTION__, hdr.version, hdr.crc32, hdr.walkedIndex, hdr.walkedSize, hdr.walkIndex, hdr.walkSize);
+					dbg(PRINT_INFO,	"\n      pthread:%u:%u\n      mmap:%u:%u\n      smaps:%u:%u\n      Pagemap:%u:%u\n",
 						hdr.stackInterceptIndex, hdr.stackInterceptSize, hdr.mmapInterceptIndex, hdr.mmapInterceptSize,
 						hdr.smapsIndex, hdr.smapsSize, hdr.pagemapIndex, hdr.pagemapSize);
 
@@ -1900,8 +1926,11 @@ int outputFile(int pid, OUTPUT_FILE opr)
 						}
 						crc32 = running_crc32(crc32, (const unsigned char *)&hdr, sizeof(hdr) - sizeof(hdr.crc32));
 						if (crc32 != hdr.crc32) {
-							dbg(PRINT_ERROR, "CRC check failed\n");
-							ret = 1;
+							dbg(PRINT_ERROR, "CRC check failed\nContinue (y/n):");
+							char c;
+							scanf("%c", &c);
+
+							ret = ('y' == c || 'Y' == c)? 0:1;
 						}
 					}
 				}
@@ -2315,34 +2344,30 @@ int main(int argc, char *argv[])
 				if (-1 != mq_send(mqsend, (const char *)&msgcmd, sizeof(msg_cmd), 0))
 				{
 #ifdef OPTIMIZE_MQ_TRANSFER
-					if (!outputFile(msgcmd.pid, OPEN_FOR_WRITE) && !storeHeapwalk(mqrecv, msgcmd.cmd, msgcmd.pid, 0)) {
-						if (OFFLINE_STORE == offlineAnalysis || HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
-							dbg(PRINT_INFO, "%s: Getting pthread create intercepts cmd 0x%X on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
-							getStackIntercepts(mqrecv, msgcmd.pid);
-#if defined(INTERCEPT_MMAP)
-							getMmapIntercepts(mqrecv, msgcmd.pid);
-#endif
-							if (!hdr.stackInterceptSize) {
-								hdr.mmapInterceptIndex = hdr.stackInterceptIndex;
-							}
-						}
-						else {
-							hdr.smapsIndex = hdr.stackInterceptIndex;
-						}
+					if (!outputFile(msgcmd.pid, OPEN_FOR_WRITE)) {
 						readAndStoreSmaps(msgcmd.pid, 1);
 						storeAnonHeapStackPagemap(msgcmd.pid);
-						outputFile(msgcmd.pid, UPDATE_HEADER_AND_CLOSE);
-						outputFile(msgcmd.pid, OPEN_FOR_READ);
-						if (OFFLINE_STORE == offlineAnalysis || HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
-							mappthreadStack(msgcmd.pid);
+					       	if (!storeHeapwalk(mqrecv, msgcmd.cmd, msgcmd.pid, 0)) {
+							if (OFFLINE_STORE == offlineAnalysis || HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
+								dbg(PRINT_INFO, "%s: Getting pthread create intercepts cmd 0x%X on mq %s\n", __FUNCTION__, msgcmd.cmd, mq_name);
+								getStackIntercepts(mqrecv, msgcmd.pid);
+#if defined(INTERCEPT_MMAP)
+								getMmapIntercepts(mqrecv, msgcmd.pid);
+#endif
+							}
+							outputFile(msgcmd.pid, UPDATE_HEADER_AND_CLOSE);
+							outputFile(msgcmd.pid, OPEN_FOR_READ);
+							if (OFFLINE_STORE == offlineAnalysis || HEAPWALK_MMAP_ENTRIES == msgcmd.cmd) {
+								mappthreadStack(msgcmd.pid);
+							}
+							totalheapedrsspages = totalheapedswappages = 0;
+							processHeapwalk(msgcmd.cmd, msgcmd.pid, threadid, 0, NULL, NULL, NULL, 0);
+							freeMMapList();
+							freePagemapDataStruct();
+							outputFile(msgcmd.pid, CLOSE_FILE);
+						} else {
+							dbg(PRINT_ERROR, "storeHeapwalk failed\n");
 						}
-						totalheapedrsspages = totalheapedswappages = 0;
-						processHeapwalk(msgcmd.cmd, msgcmd.pid, threadid, 0, NULL, NULL, NULL, 0);
-						freeMMapList();
-						freePagemapDataStruct();
-						outputFile(msgcmd.pid, CLOSE_FILE);
-					} else {
-						dbg(PRINT_ERROR, "storeHeapwalk failed\n");
 					}
 #else
 					msg_resp msgresp;
